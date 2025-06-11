@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: theme("colors.bg");
+  --foreground: #212121;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: theme("colors.bg");
+    --foreground: #212121;
+  }
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.primary {
+  background-color: theme("colors.primary");
+}
+.secondary {
+  background-color: theme("colors.secondary");
+}
+.tertiary {
+  background-color: theme("colors.tertiary");
+}
+.highlight {
+  background-color: theme("colors.highlight");
+}
+.accent {
+  background-color: theme("colors.accent");
+}
+.bg {
+  background-color: theme("colors.bg");
+}
+
+.container {
+  @apply max-w-[1600px] mx-auto;
+}
+.container2 {
+  @apply max-w-[1440px] mx-auto;
+}
+
+#scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+#scrollbar::-webkit-scrollbar-track {
+  border-radius: 8px;
+  background-color: theme("colors.bg");
+  border: 1px solid theme("colors.bg");
+}
+
+#scrollbar::-webkit-scrollbar-thumb {
+  border-radius: 8px;
+  background-color: theme("colors.primary");
+}
+
+.no-scroll {
+  overflow: hidden;
+  height: 100vh;
+}
