@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import dbConnect from '@/utils/dbConnect';
+import dbConnect from '../../../utils/dbConnect';
 import VideoCall from '../../models/VideoCall';
 
 export async function GET() {
