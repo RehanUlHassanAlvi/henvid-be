@@ -8,9 +8,72 @@ const userSchema = new Schema({
   phone: { type: String },
   role: { type: String, enum: ['super_admin', 'admin', 'user', 'guest'], default: 'user' },
   company: { type: Schema.Types.ObjectId, ref: 'Company' },
-  language: { type: String },
-  isActive: { type: Boolean, default: true }
+  language: { type: String, default: 'nb-NO' },
+  isActive: { type: Boolean, default: true },
+  
+  // Additional fields to match frontend expectations
+  image: { type: String, default: '/assets/elements/avatar.png' },
+  timezone: { type: String, default: 'Europe/Oslo' },
+  
+  // Authentication & Security
+  emailVerified: { type: Boolean, default: false },
+  emailVerificationToken: { type: String },
+  passwordResetToken: { type: String },
+  passwordResetExpires: { type: Date },
+  twoFactorEnabled: { type: Boolean, default: false },
+  twoFactorSecret: { type: String },
+  lastLoginAt: { type: Date },
+  lastLoginIP: { type: String },
+  
+  // Analytics fields
+  totalVideoCalls: { type: Number, default: 0 },
+  totalCallDuration: { type: Number, default: 0 }, // in seconds
+  averageRating: { type: Number, default: 0 },
+  reviewCount: { type: Number, default: 0 },
+  
+  // Activity tracking
+  lastActivityAt: { type: Date },
+  loginCount: { type: Number, default: 0 },
+  
+  // Preferences
+  notifications: {
+    email: { type: Boolean, default: true },
+    sms: { type: Boolean, default: false },
+    callStarted: { type: Boolean, default: true },
+    callEnded: { type: Boolean, default: true },
+    reviewReceived: { type: Boolean, default: true }
+  },
+  
+  metadata: { type: Schema.Types.Mixed }
 }, { timestamps: true });
+
+// Virtual for full name
+userSchema.virtual('fullName').get(function() {
+  return `${this.firstName} ${this.lastName}`;
+});
+
+// Virtual for frontend compatibility (name/lastname)
+userSchema.virtual('name').get(function() {
+  return this.firstName;
+});
+
+userSchema.virtual('lastname').get(function() {
+  return this.lastName;
+});
+
+userSchema.virtual('reviews').get(function() {
+  return this.reviewCount;
+});
+
+// Indexes for analytics and queries
+userSchema.index({ company: 1, role: 1 });
+userSchema.index({ email: 1 });
+userSchema.index({ isActive: 1, lastActivityAt: -1 });
+userSchema.index({ totalVideoCalls: -1 });
+
+// Ensure virtuals are included in JSON
+userSchema.set('toJSON', { virtuals: true });
+userSchema.set('toObject', { virtuals: true });
 
 const User = models.User || model('User', userSchema);
 export default User; 

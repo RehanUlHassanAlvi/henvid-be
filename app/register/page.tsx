@@ -1,10 +1,63 @@
+"use client";
 import { logo } from "@/utils/constants";
 import Link from "next/link";
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { LuCheck } from "react-icons/lu";
-//import { MdOutlineTextsms } from "react-icons/md";
+import { useAuth, useGuestGuard } from "@/utils/auth-context";
+import { useRouter } from "next/navigation";
 
 export default function Registerpage() {
+  const { register, error, loading, clearError } = useAuth();
+  const { shouldRedirect, redirectTo } = useGuestGuard('/dashboard');
+  const router = useRouter();
+  
+  const [formData, setFormData] = useState({
+    orgNumber: '',
+    companyName: '',
+    industry: '',
+    firstName: '',
+    lastName: '',
+    email: '',
+    password: '',
+    acceptTerms: true
+  });
+
+  useEffect(() => {
+    if (shouldRedirect) {
+      router.push(redirectTo);
+    }
+  }, [shouldRedirect, redirectTo, router]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value, type } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value
+    }));
+    // Clear error when user starts typing
+    if (error) clearError();
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!formData.firstName || !formData.lastName || !formData.email || !formData.password) {
+      return;
+    }
+
+    const success = await register({
+      firstName: formData.firstName,
+      lastName: formData.lastName,
+      email: formData.email,
+      password: formData.password,
+      companyName: formData.companyName,
+      orgNumber: formData.orgNumber
+    });
+    
+    if (success) {
+      router.push('/dashboard');
+    }
+  };
   return (
     <>
       <section className="py-10 bg-bg overflow-hidden min-h-dvh">
@@ -21,6 +74,11 @@ export default function Registerpage() {
                   <h2 className="font-heading mb-20 md:mb-40 text-4xl md:text-5xl text-tertiary font-black">
                     Registrer deg og kom i gang.
                   </h2>
+                  {error && (
+                    <div className="mb-6 p-3 bg-red-100 border border-red-300 text-red-700 rounded-lg">
+                      {error}
+                    </div>
+                  )}
                   <ul className="max-w-xs">
                     <h3 className="font-heading mb-6 text-xl text-gray-500 font-bold">
                       Hvorfor bli med?
@@ -70,7 +128,7 @@ export default function Registerpage() {
                 </div>
               </div>
               <div className="w-full md:w-1/2 p-8">
-                <form className="md:max-w-md mx-auto">
+                <form className="md:max-w-md mx-auto" onSubmit={handleSubmit}>
                   <div className="flex flex-wrap -m-3">
                     <div className="w-full p-3">
                       <label
@@ -82,8 +140,11 @@ export default function Registerpage() {
                       <input
                         className="appearance-none px-6 py-3.5 w-full text-lg text-gray-500 font-bold bg-white placeholder-gray-500 outline-none border border-gray-200 focus:ring-4 focus:ring-red-200 rounded-xl"
                         id="signup-orgnr"
-                        type="number"
-                        placeholder=""
+                        name="orgNumber"
+                        type="text"
+                        value={formData.orgNumber}
+                        onChange={handleInputChange}
+                        placeholder="123456789"
                       />
                     </div>
                     <div className="w-full p-3">
@@ -96,8 +157,11 @@ export default function Registerpage() {
                       <input
                         className="appearance-none px-6 py-3.5 w-full text-lg text-gray-500 font-bold bg-white placeholder-gray-500 outline-none border border-gray-200 focus:ring-4 focus:ring-red-200 rounded-xl"
                         id="signup-orgname"
+                        name="companyName"
                         type="text"
-                        placeholder=""
+                        value={formData.companyName}
+                        onChange={handleInputChange}
+                        placeholder="Ditt firmanavn"
                       />
                     </div>
                     <div className="w-full p-3">
@@ -111,11 +175,17 @@ export default function Registerpage() {
                         <select
                           className="appearance-none py-0 px-6 pr-10 text-lg w-full h-full bg-white placeholder-gray-500 outline-none border border-gray-200 focus:ring-4 focus:ring-red-200 cursor-pointer rounded-xl"
                           id="signup-field"
+                          name="industry"
+                          value={formData.industry}
+                          onChange={handleInputChange}
                         >
-                          <option value="none">Velg bransje</option>
+                          <option value="">Velg bransje</option>
                           <option value="telecom">Telecom</option>
                           <option value="it">IT</option>
-
+                          <option value="finance">Finans</option>
+                          <option value="retail">Handel</option>
+                          <option value="healthcare">Helse</option>
+                          <option value="education">Utdanning</option>
                           <option value="annet">Annet</option>
                         </select>
                         <svg
@@ -144,13 +214,17 @@ export default function Registerpage() {
                           className="block mb-2 text-sm text-gray-500 font-bold"
                           htmlFor="signup-name"
                         >
-                          Fornavn
+                          Fornavn *
                         </label>
                         <input
                           className="appearance-none px-6 py-3.5 w-full text-lg text-gray-500 font-bold bg-white placeholder-gray-500 outline-none border border-gray-200 focus:ring-4 focus:ring-red-200 rounded-xl"
                           id="signup-name"
+                          name="firstName"
                           type="text"
-                          placeholder=""
+                          value={formData.firstName}
+                          onChange={handleInputChange}
+                          placeholder="Ditt fornavn"
+                          required
                         />
                       </div>
                       <div className="w-full p-3">
@@ -158,13 +232,17 @@ export default function Registerpage() {
                           className="block mb-2 text-sm text-gray-500 font-bold"
                           htmlFor="signup-lastname"
                         >
-                          Etternavn
+                          Etternavn *
                         </label>
                         <input
                           className="appearance-none px-6 py-3.5 w-full text-lg text-gray-500 font-bold bg-white placeholder-gray-500 outline-none border border-gray-200 focus:ring-4 focus:ring-red-200 rounded-xl"
                           id="signup-lastname"
+                          name="lastName"
                           type="text"
-                          placeholder=""
+                          value={formData.lastName}
+                          onChange={handleInputChange}
+                          placeholder="Ditt etternavn"
+                          required
                         />
                       </div>
                     </div>
@@ -173,13 +251,17 @@ export default function Registerpage() {
                         className="block mb-2 text-sm text-gray-500 font-bold"
                         htmlFor="signup-email"
                       >
-                        Epostadresse
+                        Epostadresse *
                       </label>
                       <input
                         className="appearance-none px-6 py-3.5 w-full text-lg text-gray-500 font-bold bg-white placeholder-gray-500 outline-none border border-gray-200 focus:ring-4 focus:ring-red-200 rounded-xl"
                         id="signup-email"
+                        name="email"
                         type="email"
-                        placeholder=""
+                        value={formData.email}
+                        onChange={handleInputChange}
+                        placeholder="din@epost.no"
+                        required
                       />
                     </div>
                     <div className="w-full p-3">
@@ -187,13 +269,18 @@ export default function Registerpage() {
                         className="block mb-2 text-sm text-gray-500 font-bold"
                         htmlFor="signup-password"
                       >
-                        Passord
+                        Passord *
                       </label>
                       <input
                         className="appearance-none px-6 py-3.5 w-full text-lg text-gray-500 font-bold bg-white placeholder-gray-500 outline-none border border-gray-200 focus:ring-4 focus:ring-red-200 rounded-xl"
                         id="signup-password"
+                        name="password"
                         type="password"
-                        placeholder=""
+                        value={formData.password}
+                        onChange={handleInputChange}
+                        placeholder="Minimum 8 tegn"
+                        required
+                        minLength={8}
                       />
                     </div>
                     <div className="w-full p-3">
@@ -232,12 +319,13 @@ export default function Registerpage() {
                     <div className="w-full p-3">
                       <div className="flex flex-wrap md:justify-end -m-2">
                         <div className="w-full p-2">
-                          <Link
-                            className="block px-8 py-3.5 text-lg text-center text-white font-bold bg-primary hover:bg-secondary focus:ring-4 focus:ring-red-200 rounded-xl"
-                            href="/login"
+                          <button
+                            type="submit"
+                            disabled={loading || !formData.firstName || !formData.lastName || !formData.email || !formData.password || !formData.acceptTerms}
+                            className="block px-8 py-3.5 text-lg text-center text-white font-bold bg-primary hover:bg-secondary focus:ring-4 focus:ring-red-200 rounded-xl w-full disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            Kom i gang
-                          </Link>
+                            {loading ? 'Oppretter konto...' : 'Kom i gang'}
+                          </button>
                         </div>
                       </div>
                     </div>

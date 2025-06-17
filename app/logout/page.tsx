@@ -2,25 +2,39 @@
 import Link from "next/link";
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/utils/auth-context";
 
 export default function Logoutpage() {
+  const { logout } = useAuth();
   const router = useRouter();
-  const [countdown, setCountdown] = useState(10);
+  const [countdown, setCountdown] = useState(5);
+  const [loggedOut, setLoggedOut] = useState(false);
 
   useEffect(() => {
+    const performLogout = async () => {
+      await logout();
+      setLoggedOut(true);
+    };
+    
+    performLogout();
+  }, [logout]);
+
+  useEffect(() => {
+    if (!loggedOut) return;
+
     const interval = setInterval(() => {
       setCountdown((prev) => prev - 1);
     }, 1000);
 
     const timeout = setTimeout(() => {
       router.push("/");
-    }, 10000);
+    }, 5000);
 
     return () => {
       clearInterval(interval);
       clearTimeout(timeout);
     };
-  }, [router]);
+  }, [router, loggedOut]);
 
   return (
     <div className="w-full h-dvh bg-bg">

@@ -1,8 +1,48 @@
+"use client";
 import { logo } from "@/utils/constants";
 import Link from "next/link";
-import React from "react";
+import React, { useState, useEffect } from "react";
+import { useAuth, useGuestGuard } from "@/utils/auth-context";
+import { useRouter } from "next/navigation";
 
 export default function Loginpage() {
+  const { login, error, loading, clearError } = useAuth();
+  const { shouldRedirect, redirectTo } = useGuestGuard('/dashboard');
+  const router = useRouter();
+  
+  const [formData, setFormData] = useState({
+    email: '',
+    password: ''
+  });
+
+  useEffect(() => {
+    if (shouldRedirect) {
+      router.push(redirectTo);
+    }
+  }, [shouldRedirect, redirectTo, router]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+    // Clear error when user starts typing
+    if (error) clearError();
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!formData.email || !formData.password) {
+      return;
+    }
+
+    const success = await login(formData.email, formData.password);
+    if (success) {
+      router.push('/dashboard');
+    }
+  };
   return (
     <>
       <section className="py-10 bg-bg overflow-hidden lg:pt-20">
@@ -21,8 +61,13 @@ export default function Loginpage() {
                 <p className="text-gray-500 font-bold">
                   Fyll ut dine detaljer for å logge inn
                 </p>
+                {error && (
+                  <div className="mt-4 p-3 bg-red-100 border border-red-300 text-red-700 rounded-lg">
+                    {error}
+                  </div>
+                )}
               </div>
-              <form>
+              <form onSubmit={handleSubmit}>
                 <div className="flex flex-wrap -m-3">
                   <div className="w-full p-3">
                     <label
@@ -34,8 +79,12 @@ export default function Loginpage() {
                     <input
                       className="appearance-none px-6 py-3.5 w-full text-lg text-gray-500 font-bold bg-white placeholder-gray-500 outline-none border border-gray-200 focus:ring-4 focus:ring-red-200 rounded-xl"
                       id="login-email"
+                      name="email"
                       type="email"
-                      placeholder=""
+                      value={formData.email}
+                      onChange={handleInputChange}
+                      placeholder="din@epost.no"
+                      required
                     />
                   </div>
                   <div className="w-full p-3">
@@ -51,8 +100,12 @@ export default function Loginpage() {
                           <input
                             className="appearance-none px-6 py-3.5 w-full text-lg text-gray-500 font-bold bg-white placeholder-gray-500 outline-none"
                             id="login-password"
+                            name="password"
                             type="password"
-                            placeholder=""
+                            value={formData.password}
+                            onChange={handleInputChange}
+                            placeholder="Ditt passord"
+                            required
                           />
                         </div>
                         <div className="w-auto">
@@ -69,12 +122,13 @@ export default function Loginpage() {
                   <div className="w-full p-3">
                     <div className="flex flex-wrap md:justify-end -m-2">
                       <div className="w-full p-2">
-                        <Link
-                          className="block px-8 py-3.5 text-lg text-center text-white font-bold bg-primary hover:bg-secondary focus:ring-4 focus:ring-red-200 rounded-xl"
-                          href="/dashboard"
+                        <button
+                          type="submit"
+                          disabled={loading || !formData.email || !formData.password}
+                          className="block px-8 py-3.5 text-lg text-center text-white font-bold bg-primary hover:bg-secondary focus:ring-4 focus:ring-red-200 rounded-xl w-full disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          Logg inn
-                        </Link>
+                          {loading ? 'Logger inn...' : 'Logg inn'}
+                        </button>
                       </div>
                     </div>
                   </div>

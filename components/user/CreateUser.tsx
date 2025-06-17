@@ -1,12 +1,65 @@
+"use client";
 import Image from "next/image";
-import React from "react";
+import React, { useState } from "react";
 import { LuX } from "react-icons/lu";
+import { userApi, handleApiError } from "@/utils/api";
+import { useAuth } from "@/utils/auth-context";
 
 interface CreateUserProps {
   onClose: () => void;
+  onSuccess?: () => void;
 }
 
-export default function CreateUser({ onClose }: CreateUserProps) {
+export default function CreateUser({ onClose, onSuccess }: CreateUserProps) {
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [formData, setFormData] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    role: 'user'
+  });
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+    if (error) setError(null);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!formData.firstName || !formData.lastName || !formData.email) {
+      setError('Fornavn, etternavn og epost er påkrevd');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await userApi.createUser({
+        ...formData,
+        companyId: user?.company?.id
+      });
+
+      if (response.error) {
+        setError(handleApiError(response));
+      } else {
+        onSuccess?.();
+        onClose();
+      }
+    } catch (err) {
+      setError('Kunne ikke opprette bruker');
+    } finally {
+      setLoading(false);
+    }
+  };
   return (
     <>
       <section className="fixed inset-0 flex items-center justify-center flex-wrap overflow-y-auto">
@@ -25,6 +78,11 @@ export default function CreateUser({ onClose }: CreateUserProps) {
                   <p className="text-sm text-neutral-400 font-medium">
                     Legg inn informasjon om brukeren
                   </p>
+                  {error && (
+                    <div className="mt-2 p-2 bg-red-100 border border-red-300 text-red-700 rounded text-sm">
+                      {error}
+                    </div>
+                  )}
                 </div>
                 <div className="w-10 p-2">
                   <button onClick={onClose} className="relative top-1">
@@ -32,6 +90,7 @@ export default function CreateUser({ onClose }: CreateUserProps) {
                   </button>
                 </div>
               </div>
+              <form onSubmit={handleSubmit}>
               {/*
               <div className="pb-3.5 w-full overflow-x-auto">
                 <table className="w-full min-w-max">
@@ -282,14 +341,18 @@ export default function CreateUser({ onClose }: CreateUserProps) {
                     className="block mb-2 text-sm text-gray-500 font-bold"
                     htmlFor="createuser-name"
                   >
-                    Fornavn
+                    Fornavn *
                   </label>
 
                   <input
                     className="appearance-none px-6 py-3.5 w-full text-lg text-gray-500 font-bold bg-white placeholder-gray-500 outline-none border border-gray-200 focus:ring-4 focus:ring-red-200 rounded-xl"
                     id="createuser-name"
-                    type="email"
-                    placeholder=""
+                    name="firstName"
+                    type="text"
+                    value={formData.firstName}
+                    onChange={handleInputChange}
+                    placeholder="Fornavn"
+                    required
                   />
                 </div>
                 <div className="w-full p-3">
@@ -297,14 +360,18 @@ export default function CreateUser({ onClose }: CreateUserProps) {
                     className="block mb-2 text-sm text-gray-500 font-bold"
                     htmlFor="createuser-lastname"
                   >
-                    Etternavn
+                    Etternavn *
                   </label>
 
                   <input
                     className="appearance-none px-6 py-3.5 w-full text-lg text-gray-500 font-bold bg-white placeholder-gray-500 outline-none border border-gray-200 focus:ring-4 focus:ring-red-200 rounded-xl"
                     id="createuser-lastname"
-                    type="email"
-                    placeholder=""
+                    name="lastName"
+                    type="text"
+                    value={formData.lastName}
+                    onChange={handleInputChange}
+                    placeholder="Etternavn"
+                    required
                   />
                 </div>
               </div>
@@ -313,13 +380,17 @@ export default function CreateUser({ onClose }: CreateUserProps) {
                   className="block mb-2 text-sm text-gray-500 font-bold"
                   htmlFor="createuser-email"
                 >
-                  Epostadresse
+                  Epostadresse *
                 </label>
                 <input
                   className="appearance-none px-6 py-3.5 w-full text-lg text-gray-500 font-bold bg-white placeholder-gray-500 outline-none border border-gray-200 focus:ring-4 focus:ring-red-200 rounded-xl"
                   id="createuser-email"
+                  name="email"
                   type="email"
-                  placeholder=""
+                  value={formData.email}
+                  onChange={handleInputChange}
+                  placeholder="bruker@firma.no"
+                  required
                 />
               </div>
               <div className="w-full p-3">
@@ -332,30 +403,36 @@ export default function CreateUser({ onClose }: CreateUserProps) {
                 <input
                   className="appearance-none px-6 py-3.5 w-full text-lg text-gray-500 font-bold bg-white placeholder-gray-500 outline-none border border-gray-200 focus:ring-4 focus:ring-red-200 rounded-xl"
                   id="createuser-phone"
+                  name="phone"
                   type="tel"
-                  placeholder=""
+                  value={formData.phone}
+                  onChange={handleInputChange}
+                  placeholder="12345678"
                 />
               </div>
               <div className="w-full p-3">
                 <div className="flex flex-nowrap md:justify-end -m-2">
                   <div className="w-full p-2">
-                    <div
+                    <button
+                      type="button"
                       onClick={onClose}
-                      className="block cursor-pointer px-8 py-3.5 text-lg text-center text-tertiary font-bold bg-bg hover:bg-white border border-gray-200 focus:ring-4 focus:ring-red-200 rounded-xl"
+                      className="block cursor-pointer px-8 py-3.5 text-lg text-center text-tertiary font-bold bg-bg hover:bg-white border border-gray-200 focus:ring-4 focus:ring-red-200 rounded-xl w-full"
                     >
                       Avbryt
-                    </div>
+                    </button>
                   </div>
                   <div className="w-full p-2">
-                    <div
-                      onClick={onClose}
-                      className="block cursor-pointer px-8 py-3.5 text-lg text-center text-white font-bold bg-primary hover:bg-secondary focus:ring-4 focus:ring-red-200 rounded-xl"
+                    <button
+                      type="submit"
+                      disabled={loading || !formData.firstName || !formData.lastName || !formData.email}
+                      className="block cursor-pointer px-8 py-3.5 text-lg text-center text-white font-bold bg-primary hover:bg-secondary focus:ring-4 focus:ring-red-200 rounded-xl w-full disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Opprett
-                    </div>
+                      {loading ? 'Oppretter...' : 'Opprett'}
+                    </button>
                   </div>
                 </div>
               </div>
+            </form>
             </div>
           </div>
         </div>

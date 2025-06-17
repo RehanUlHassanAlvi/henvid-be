@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import toast, { Toaster } from "react-hot-toast";
 import { LuCamera, LuCameraOff, LuCopy, LuPhoneOff } from "react-icons/lu";
 import { MdOutlineStar, MdOutlineStarOutline } from "react-icons/md";
+import VideoCallComponent from "../../../components/VideoCallComponent";
 
 export default function Meetingpage() {
   const [meetingStatus, setMeetingStatus] = useState("initiated");
@@ -331,36 +332,12 @@ export default function Meetingpage() {
             </div>
           </div>
           <div className="relative bg-tertiary w-full rounded-2xl min-h-[50dvh] max-h-[60dvh]">
-            {meetingStatus === "initiated" ? (
-              <div
-                onClick={() => setMeetingStatus("started")}
-                className="h-full w-full bg-tertiary rounded-xl"
-              >
-                <div className="w-full h-full flex justify-center items-center">
-                  <p className="text-highlight text-center">
-                    Venter på kunden skal koble til...
-                  </p>
-                </div>
-              </div>
-            ) : meetingStatus === "started" ? (
-              <div
-                onClick={() => setMeetingStatus("done")}
-                className="h-full w-full bg-tertiary rounded-xl"
-              >
-                <div className="w-full h-full flex justify-center items-center">
-                  <p className="text-highlight text-center">
-                    Kunden har koblet til, venter på videosignal
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <img
-                onClick={() => setMeetingStatus("done")}
-                className="w-full h-full object-contain rounded-xl"
-                src="/assets/images/customer1.jpg"
-                alt="Main"
-              />
-            )}
+                      <VideoCallComponent 
+            meetingStatus={meetingStatus}
+            roomCode={roomcode}
+            onStatusChange={setMeetingStatus}
+            identity="Support Agent"
+          />
 
             {/*
                 <div className="absolute top-3 left-3 mr-8">
