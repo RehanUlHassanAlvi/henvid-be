@@ -4,6 +4,8 @@ import dbConnect from '../../../utils/dbConnect';
 import User from '../../models/User';
 import Company from '../../models/Company';
 import License from '../../models/License';
+import EmailVerification from '../../models/EmailVerification';
+import { EmailService, generateVerificationCode } from '../../../utils/emailService';
 
 export async function GET(request: NextRequest) {
   await dbConnect();
@@ -81,12 +83,12 @@ export async function POST(request: NextRequest) {
   await dbConnect();
   
   try {
-    const { firstName, lastName, email, password, phone, role, companyId, language } = await request.json();
+    const { firstName, lastName, email, password, phone, role, companyId, language, image } = await request.json();
     
     // Validate required fields
-    if (!firstName || !lastName || !email || !password) {
+    if (!firstName || !lastName || !email) {
       return NextResponse.json({ 
-        error: 'First name, last name, email, and password are required' 
+        error: 'First name, last name, and email are required' 
       }, { status: 400 });
     }
     
@@ -116,9 +118,10 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // Hash password
+    // Generate temporary password if not provided
+    const tempPassword = password || `temp${Math.random().toString(36).slice(-8)}`;
     const saltRounds = 12;
-    const hashedPassword = await bcrypt.hash(password, saltRounds);
+    const hashedPassword = await bcrypt.hash(tempPassword, saltRounds);
     
     // Create user
     const user = new User({
@@ -130,6 +133,8 @@ export async function POST(request: NextRequest) {
       role: role || 'user',
       company: companyId || null,
       language: language || 'nb-NO',
+      image: image || '/assets/elements/avatar.png',
+      emailVerified: false, // Force email verification for admin-created users
       isActive: true
     });
     
@@ -144,6 +149,28 @@ export async function POST(request: NextRequest) {
     
     // Populate company data
     await user.populate('company', 'name logo');
+    
+    // Send verification email for admin-created users
+    try {
+      const verificationCode = generateVerificationCode();
+      
+      const verification = new EmailVerification({
+        email: email.toLowerCase(),
+        verificationCode,
+        expiresAt: new Date(Date.now() + 15 * 60 * 1000) // 15 minutes
+      });
+      
+      await verification.save();
+      
+      await EmailService.sendVerificationEmail(
+        email,
+        firstName,
+        verificationCode
+      );
+    } catch (emailError) {
+      console.warn('Failed to send verification email to new user:', emailError);
+      // Don't fail user creation if email fails
+    }
     
     // Format response
     const userResponse = {
@@ -170,7 +197,7 @@ export async function POST(request: NextRequest) {
     console.error('Create user error:', error);
     
     // Handle duplicate key errors
-    if (error.code === 11000) {
+    if (error instanceof Error && 'code' in error && (error as any).code === 11000) {
       return NextResponse.json({ 
         error: 'Email already exists' 
       }, { status: 409 });

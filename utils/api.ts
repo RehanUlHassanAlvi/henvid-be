@@ -64,7 +64,12 @@ export const authApi = {
 
   getCurrentUser: async (): Promise<ApiResponse> => {
     try {
-      const response = await fetch('/api/auth/me');
+      const response = await fetch('/api/auth/me', {
+        credentials: 'include', // Include cookies for session-based auth
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
       return await response.json();
     } catch (error) {
       return { error: 'Failed to get user' };
@@ -116,13 +121,27 @@ export const userApi = {
         });
       }
       
-      const response = await fetch(`/api/users?${searchParams}`);
+      const response = await fetch(`/api/users?${searchParams}`, {
+        credentials: 'include', // Include cookies for session-based auth
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      if (!response.ok) {
+        console.error('Failed to fetch users:', response.status, response.statusText);
+        return { data: [], pagination: { total: 0, page: 1, limit: 50, totalPages: 0 } };
+      }
+      
       const result = await response.json();
+      console.log('Users API response:', result);
+      
       return {
         data: result.users || [],
         pagination: result.pagination || { total: 0, page: 1, limit: 50, totalPages: 0 }
       };
     } catch (error) {
+      console.error('Error in getUsers:', error);
       return { data: [], pagination: { total: 0, page: 1, limit: 50, totalPages: 0 } };
     }
   },
@@ -143,6 +162,7 @@ export const userApi = {
     phone?: string;
     role?: string;
     companyId?: string;
+    image?: string;
   }): Promise<ApiResponse> => {
     try {
       const response = await fetch('/api/users', {
@@ -197,7 +217,12 @@ export const companyApi = {
         });
       }
       
-      const response = await fetch(`/api/companies?${searchParams}`);
+      const response = await fetch(`/api/companies?${searchParams}`, {
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
       const result = await response.json();
       return {
         data: result.companies || [],
@@ -210,7 +235,12 @@ export const companyApi = {
 
   getCompany: async (id: string): Promise<ApiResponse> => {
     try {
-      const response = await fetch(`/api/companies/${id}`);
+      const response = await fetch(`/api/companies/${id}`, {
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
       return await response.json();
     } catch (error) {
       return { error: 'Failed to fetch company' };
@@ -249,7 +279,12 @@ export const licenseApi = {
         });
       }
       
-      const response = await fetch(`/api/licenses?${searchParams}`);
+      const response = await fetch(`/api/licenses?${searchParams}`, {
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
       const result = await response.json();
       return {
         data: result.licenses || [],

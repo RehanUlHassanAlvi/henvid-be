@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import dbConnect from '../../../../utils/dbConnect';
-import User from '../../../models/User';
-import Session from '../../../models/Session';
+import { User, Company, Session } from '../../../models';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 const JWT_EXPIRES_IN = '24h';
@@ -45,6 +44,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ 
         error: 'Invalid email or password' 
       }, { status: 401 });
+    }
+
+    // Check if email is verified
+    if (!user.emailVerified) {
+      return NextResponse.json({ 
+        error: 'Email not verified. Please check your email for verification instructions.',
+        requiresVerification: true,
+        email: user.email
+      }, { status: 403 });
     }
     
     // Generate tokens
@@ -113,13 +121,30 @@ export async function POST(request: NextRequest) {
       reviews: user.reviewCount || 0 // Frontend compatibility
     };
     
-    return NextResponse.json({
+    // Set secure HTTP-only cookies
+    const response = NextResponse.json({
       user: userResponse,
-      accessToken,
-      refreshToken,
       expiresIn: 24 * 60 * 60, // 24 hours in seconds
       sessionId: session._id
     });
+    
+    response.cookies.set('token', accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours in milliseconds
+      path: '/'
+    });
+    
+    response.cookies.set('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in milliseconds
+      path: '/'
+    });
+    
+    return response;
     
   } catch (error) {
     console.error('Login error:', error);

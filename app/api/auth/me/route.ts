@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '../../../../utils/dbConnect';
-import User from '../../../models/User';
-import Session from '../../../models/Session';
+import { User, Company, Session } from '../../../models';
 import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
@@ -10,9 +9,12 @@ export async function GET(request: NextRequest) {
   await dbConnect();
   
   try {
-    // Get token from Authorization header
+    // Get token from cookies or Authorization header
+    const cookieToken = request.cookies.get('token')?.value;
     const authHeader = request.headers.get('authorization');
-    const token = authHeader?.replace('Bearer ', '');
+    const bearerToken = authHeader?.replace('Bearer ', '');
+    
+    const token = cookieToken || bearerToken;
     
     if (!token) {
       return NextResponse.json({ 

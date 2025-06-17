@@ -1,5 +1,5 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   LuBotMessageSquare,
   LuCalendarFold,
@@ -16,13 +16,17 @@ import {
   LuSettings2,
   LuVideotape,
   LuX,
+  LuTrash,
+  LuLoader,
 } from "react-icons/lu";
 import User from "@/components/user/User";
 import { UserType } from "@/utils/types2";
-import { users } from "@/utils/store2";
 import CreateUser from "@/components/user/CreateUser";
+import DeleteUser from "@/components/user/DeleteUser";
 import AddLicense from "../license/AddLicense";
 import EditLicense from "../license/EditLicense";
+import { userApi, companyApi, licenseApi, handleApiError } from "@/utils/api";
+import { useAuth } from "@/utils/auth-context";
 
 const addons = [
   {
@@ -119,23 +123,328 @@ const licenses: LicenseItem[] = [
 ];
 
 export default function Settings() {
+  const { user: currentUser, loading: authLoading } = useAuth();
   const [settingspage, setSettingspage] = useState(1);
+  
+  // Debug: Log current user to see if company data is available
+  console.log('Settings component - currentUser:', currentUser);
+  console.log('Settings component - authLoading:', authLoading);
+  console.log('Settings component - currentUser.company:', currentUser?.company);
   // Static but will be dynamic of course
   const activatedAddons = [2, 4, 5];
   const [selectedUser, setSelectedUser] = useState<UserType | null>(null);
   const [createUserModal, setCreateUserModal] = useState(false);
+  const [deleteUserModal, setDeleteUserModal] = useState(false);
+  const [userToDelete, setUserToDelete] = useState<any | null>(null);
   const [addLicenseModal, setAddLicenseModal] = useState(false);
   const [editLicenseModal, setEditLicenseModal] = useState(false);
+  
+  // Company users state
+  const [companyUsers, setCompanyUsers] = useState<any[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  
+  // Company data state
+  const [companyData, setCompanyData] = useState<any>(null);
+  const [loadingCompany, setLoadingCompany] = useState(false);
+  
+  // License data state
+  const [licenseData, setLicenseData] = useState<any[]>([]);
+  const [loadingLicenses, setLoadingLicenses] = useState(false);
+
+  const [companyForm, setCompanyForm] = useState<any>(null);
+  const [companyDirty, setCompanyDirty] = useState(false);
+  const [savingCompany, setSavingCompany] = useState(false);
+
+  const [userForm, setUserForm] = useState<any>(null);
+  const [userDirty, setUserDirty] = useState(false);
+  const [savingUser, setSavingUser] = useState(false);
+
+  // Fetch company data
+  const fetchCompanyData = async () => {
+    console.log('fetchCompanyData called, currentUser:', currentUser);
+    setLoadingCompany(true);
+    
+    const companyId = currentUser?.company?.id || (currentUser?.company as any)?._id;
+    if (!companyId) {
+      console.log('No company ID found for company data fetch');
+      console.log('Using currentUser company data as fallback:', currentUser?.company);
+      setCompanyData(currentUser?.company || null);
+      setLoadingCompany(false);
+      return;
+    }
+    
+    try {
+      // Get current user's company from the companies API by ID
+      console.log('Fetching company data for company ID:', companyId);
+      const response = await companyApi.getCompany(companyId);
+      console.log('Fetched company response:', response);
+      
+      if (response && !response.error) {
+        setCompanyData(response);
+      } else {
+        // Fallback to using company data from currentUser
+        console.log('Company API returned error or no data, using currentUser company data:', currentUser?.company);
+        setCompanyData(currentUser?.company || null);
+      }
+    } catch (error) {
+      console.error('Error fetching company data:', error);
+      // Fallback to using company data from currentUser
+      console.log('API error, using currentUser company data as fallback:', currentUser?.company);
+      setCompanyData(currentUser?.company || null);
+    } finally {
+      setLoadingCompany(false);
+    }
+  };
+
+  // Fetch company users
+  const fetchCompanyUsers = async () => {
+    console.log('fetchCompanyUsers called, currentUser:', currentUser);
+    setLoadingUsers(true);
+    
+    if (!currentUser?.company?.id) {
+      console.log('No company ID found for current user:', currentUser);
+      console.log('Company object:', currentUser?.company);
+      console.log('Attempting to fetch all users (debug mode)...');
+      
+      // Try fetching all users to see if the API works
+      try {
+        const response = await userApi.getUsers();
+        console.log('Fetched all users response (debug):', response);
+        // Filter out admin/super_admin users from the list
+        const filteredUsers = (response.data || []).filter((user: any) => 
+          user.role !== 'admin' && user.role !== 'super_admin'
+        );
+        console.log('Filtered users (excluding admins):', filteredUsers);
+        setCompanyUsers(filteredUsers);
+      } catch (error) {
+        console.error('Error fetching all users (debug):', error);
+        setCompanyUsers([]);
+      } finally {
+        setLoadingUsers(false);
+      }
+      return;
+    }
+    
+    console.log('Fetching users for company:', currentUser.company.id);
+    
+    try {
+      const response = await userApi.getUsers({
+        company: currentUser.company.id,
+        isActive: true
+      });
+      
+      console.log('Fetched users response:', response);
+      // Filter out admin/super_admin users from the list
+      const filteredUsers = (response.data || []).filter((user: any) => 
+        user.role !== 'admin' && user.role !== 'super_admin'
+      );
+      console.log('Filtered users (excluding admins):', filteredUsers);
+      setCompanyUsers(filteredUsers);
+    } catch (error) {
+      console.error('Error fetching company users:', error);
+      setCompanyUsers([]);
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+
+  // Fetch licenses
+  const fetchLicenses = async () => {
+    console.log('fetchLicenses called, currentUser:', currentUser);
+    setLoadingLicenses(true);
+    
+    if (!currentUser?.company?.id) {
+      console.log('No company ID found for licenses fetch');
+      setLoadingLicenses(false);
+      return;
+    }
+    
+    try {
+      const response = await licenseApi.getLicenses({
+        company: currentUser.company.id
+      });
+      console.log('Fetched licenses response:', response);
+      setLicenseData(response.data || []);
+    } catch (error) {
+      console.error('Error fetching licenses:', error);
+      setLicenseData([]);
+    } finally {
+      setLoadingLicenses(false);
+    }
+  };
+
+  // Load data when component mounts and when switching tabs
+  useEffect(() => {
+    console.log('useEffect triggered - authLoading:', authLoading, 'currentUser:', !!currentUser, 'settingspage:', settingspage);
+    
+    // Don't run if still loading auth or no user
+    if (authLoading || !currentUser) {
+      console.log('Skipping data fetch - still loading or no user');
+      return;
+    }
+
+    console.log('Settings page changed to:', settingspage);
+    
+    switch (settingspage) {
+      case 1: // General tab
+        console.log('Loading General tab data');
+        fetchCompanyData();
+        break;
+      case 2: // Users tab
+        console.log('Loading Users tab data');
+        fetchCompanyUsers();
+        break;
+      case 3: // Extra features tab
+        console.log('Loading Extra features tab data');
+        // No specific API call needed for addons
+        break;
+      case 4: // Licenses and payment tab
+        console.log('Loading Licenses tab data');
+        fetchLicenses();
+        break;
+      default:
+        break;
+    }
+  }, [settingspage, currentUser?.company?.id, (currentUser?.company as any)?._id, currentUser, authLoading]);
+
+  // Initialize data when component first loads
+  useEffect(() => {
+    console.log('Initialization useEffect - authLoading:', authLoading, 'currentUser:', !!currentUser);
+    
+    if (!authLoading && currentUser) {
+      console.log('Initializing Settings component with settingspage:', settingspage);
+      
+      // Load initial data based on current tab
+      switch (settingspage) {
+        case 1:
+          console.log('Initializing General tab');
+          fetchCompanyData();
+          break;
+        case 2:
+          console.log('Initializing Users tab');
+          fetchCompanyUsers();
+          break;
+        case 4:
+          console.log('Initializing Licenses tab');
+          fetchLicenses();
+          break;
+      }
+    }
+  }, [authLoading, currentUser]); // Only run when auth state changes
+
+  // Initialize form data when companyData or currentUser changes
+  useEffect(() => {
+    if (companyData) {
+      setCompanyForm({
+        name: companyData.name || '',
+        customDomain: companyData.customDomain || '',
+        orgNumber: companyData.orgNumber || '',
+        industry: companyData.industry || '',
+      });
+      setCompanyDirty(false);
+    }
+  }, [companyData]);
+
+  useEffect(() => {
+    if (currentUser) {
+      setUserForm({
+        name: `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim(),
+        phone: currentUser.phone || '',
+        email: currentUser.email || '',
+        language: (currentUser as any).language || 'NO',
+      });
+      setUserDirty(false);
+    }
+  }, [currentUser]);
+
+  const handleCompanyInputChange = (field: string, value: string) => {
+    setCompanyForm((prev: any) => ({ ...prev, [field]: value }));
+    setCompanyDirty(true);
+  };
+
+  const handleUserInputChange = (field: string, value: string) => {
+    setUserForm((prev: any) => ({ ...prev, [field]: value }));
+    setUserDirty(true);
+  };
+
+  const handleSaveCompany = async () => {
+    if (!companyDirty || !companyForm) return;
+    const companyId = currentUser?.company?.id || (currentUser?.company as any)?._id;
+    if (!companyId) return;
+    setSavingCompany(true);
+    try {
+      const response = await companyApi.updateCompany(companyId, companyForm);
+      console.log('Company updated:', response);
+      await fetchCompanyData();
+      setCompanyDirty(false);
+    } catch (error) {
+      console.error('Error updating company:', error);
+    } finally {
+      setSavingCompany(false);
+    }
+  };
+
+  const handleSaveUser = async () => {
+    if (!userDirty || !userForm) return;
+    if (!currentUser) return;
+    setSavingUser(true);
+    try {
+      // Split name into first and last
+      const [firstName, ...rest] = userForm.name.split(' ');
+      const lastName = rest.join(' ');
+      const updatePayload = {
+        firstName,
+        lastName,
+        phone: userForm.phone,
+        email: userForm.email,
+        language: userForm.language,
+      };
+      const response = await userApi.updateUser((currentUser as any).id || (currentUser as any)._id, updatePayload);
+      console.log('User updated:', response);
+      setUserDirty(false);
+    } catch (error) {
+      console.error('Error updating user:', error);
+    } finally {
+      setSavingUser(false);
+    }
+  };
 
   const handleCreateUserModal = () => {
     setCreateUserModal(true);
   };
 
+  const handleCreateUserSuccess = () => {
+    // Refresh users list when a new user is created
+    fetchCompanyUsers();
+  };
+
+  const handleDeleteUser = (user: any) => {
+    setUserToDelete(user);
+    setDeleteUserModal(true);
+  };
+
+  const handleDeleteUserSuccess = () => {
+    // Refresh users list when a user is deleted
+    fetchCompanyUsers();
+    setDeleteUserModal(false);
+    setUserToDelete(null);
+  };
+
   const handleAddLicenseModal = () => {
     setAddLicenseModal(true);
   };
+  
   const handleEditLicenseModal = () => {
     setEditLicenseModal(true);
+  };
+
+  const handleSaveAll = async () => {
+    if (companyDirty) {
+      await handleSaveCompany();
+    }
+    if (userDirty) {
+      await handleSaveUser();
+    }
   };
 
   return (
@@ -145,7 +454,15 @@ export default function Settings() {
           <div className="bg-bg border shadow-none shadow-black/25 rounded-xl">
             <div className="w-auto flex flex-row flex-wrap items-center justify-start">
               <div
-                onClick={() => setSettingspage(1)}
+                onClick={() => {
+                  console.log('General tab clicked');
+                  console.log('currentUser:', currentUser);
+                  console.log('currentUser?.company?.id:', currentUser?.company?.id);
+                  setSettingspage(1);
+                  // Always fetch company data when tab is clicked (force update)
+                  console.log('Force calling fetchCompanyData from tab click');
+                  fetchCompanyData();
+                }}
                 className={`px-8 py-3.5 cursor-pointer rounded-xl ${
                   settingspage === 1 && "shadow-sm shadow-black/25 bg-white"
                 }`}
@@ -155,7 +472,15 @@ export default function Settings() {
                 </p>
               </div>
               <div
-                onClick={() => setSettingspage(2)}
+                onClick={() => {
+                  console.log('Users tab clicked');
+                  console.log('currentUser:', currentUser);
+                  console.log('currentUser?.company?.id:', currentUser?.company?.id);
+                  setSettingspage(2);
+                  // Always fetch users when tab is clicked (force update)
+                  console.log('Force calling fetchCompanyUsers from tab click');
+                  fetchCompanyUsers();
+                }}
                 className={`px-8 py-3.5 cursor-pointer rounded-xl ${
                   settingspage === 2 && "shadow-sm shadow-black/25 bg-white"
                 }`}
@@ -165,7 +490,10 @@ export default function Settings() {
                 </p>
               </div>
               <div
-                onClick={() => setSettingspage(3)}
+                onClick={() => {
+                  console.log('Extra features tab clicked');
+                  setSettingspage(3);
+                }}
                 className={`px-8 py-3.5 cursor-pointer rounded-xl ${
                   settingspage === 3 && "shadow-sm shadow-black/25 bg-white"
                 }`}
@@ -175,7 +503,11 @@ export default function Settings() {
                 </p>
               </div>
               <div
-                onClick={() => setSettingspage(4)}
+                onClick={() => {
+                  console.log('Licenses tab clicked');
+                  setSettingspage(4);
+                  fetchLicenses();
+                }}
                 className={`px-8 py-3.5 cursor-pointer rounded-xl ${
                   settingspage === 4 && "shadow-sm shadow-black/25 bg-white"
                 }`}
@@ -203,7 +535,9 @@ export default function Settings() {
       {settingspage === 1 && (
         <div className="w-full flex flex-col pb-10">
           <div className="container px-4 mx-auto pt-4">
-            <h2 className="text-2xl font-semibold pb-2">Firma</h2>
+            <h2 className="text-2xl font-semibold pb-2">
+              Firma {loadingCompany && <span className="text-sm text-gray-500">(Laster...)</span>}
+            </h2>
             <hr />
           </div>
           <section className="py-4 overflow-hidden">
@@ -254,7 +588,9 @@ export default function Settings() {
                         className="py-2.5 px-3.5 text-sm w-full hover:bg-gray-50 outline-none placeholder-neutral-400 border border-neutral-200 rounded-lg focus-within:border-neutral-600"
                         id="inputsInput13-1"
                         type="text"
+                        value={companyForm?.name || ''}
                         placeholder="Firmavn AS"
+                        onChange={(e) => handleCompanyInputChange('name', e.target.value)}
                       />
                     </div>
                   </div>
@@ -289,7 +625,9 @@ export default function Settings() {
                             className="py-3 px-3.5 text-sm w-full h-full outline-none hover:bg-gray-50 placeholder-neutral-400"
                             id="inputsInput1-1"
                             type="text"
+                            value={companyForm?.customDomain || ''}
                             placeholder="firmanavn"
+                            onChange={(e) => handleCompanyInputChange('customDomain', e.target.value)}
                           />
                         </div>
                       </div>
@@ -318,7 +656,9 @@ export default function Settings() {
                         className="py-2.5 pr-3.5 text-sm w-auto bg-transparent outline-none placeholder-neutral-400"
                         id="inputsInput18-1"
                         type="text"
+                        value={companyForm?.customDomain || ''}
                         placeholder="firmanavn"
+                        onChange={(e) => handleCompanyInputChange('customDomain', e.target.value)}
                       />
                       <span className="pl-3.5 text-sm text-neutral-400 select-none">
                         .henvid.com/
@@ -336,7 +676,7 @@ export default function Settings() {
                 <div className="flex flex-wrap justify-between -m-2">
                   <div className="w-full sm:w-1/2 p-2">
                     <h3 className="font-heading text-sm font-semibold">
-                      Organisasjonsnummer
+                    Organisasjonsnummer
                     </h3>
                   </div>
                   <div className="w-full sm:w-1/2 p-2">
@@ -344,9 +684,11 @@ export default function Settings() {
                       <input
                         className="py-2.5 px-3.5 text-sm w-full hover:bg-gray-50 outline-none placeholder-neutral-400 border border-neutral-200 rounded-lg focus-within:border-neutral-600"
                         id="inputsInput13-1"
-                        type="number"
+                        type="text"
+                        value={companyForm?.orgNumber || ''}
                         maxLength={9}
                         placeholder="999888777"
+                        onChange={(e) => handleCompanyInputChange('orgNumber', e.target.value)}
                       />
                     </div>
                   </div>
@@ -432,11 +774,16 @@ export default function Settings() {
                       <select
                         className="appearance-none py-2 pll-10 pl-3.5 pr-10 text-sm w-full h-full bg-white hover:bg-gray-50 outline-none border border-neutral-200 focus:border-neutral-600 cursor-pointer rounded-lg"
                         id="inputsSelect6-1"
+                        value={companyForm?.industry || 'none'}
+                        onChange={(e) => handleCompanyInputChange('industry', e.target.value)}
                       >
                         <option value="none">Velg bransje</option>
                         <option value="telecom">Telecom</option>
                         <option value="it">IT</option>
-
+                        <option value="finance">Finans</option>
+                        <option value="retail">Handel</option>
+                        <option value="healthcare">Helse</option>
+                        <option value="education">Utdanning</option>
                         <option value="annet">Annet</option>
                       </select>
                       <svg
@@ -492,7 +839,9 @@ export default function Settings() {
                         className="py-2.5 pl-2 pr-3.5 text-sm w-full bg-transparent outline-none placeholder-neutral-400"
                         id="inputsInput7-1"
                         type="text"
+                        value={userForm?.name || ''}
                         placeholder="Skriv inn fornavn og etternavn"
+                        onChange={(e) => handleUserInputChange('name', e.target.value)}
                       />
                     </div>
                   </div>
@@ -544,7 +893,9 @@ export default function Settings() {
                             className="py-3 px-3.5 text-sm w-full h-full hover:bg-gray-50 outline-none placeholder-neutral-400"
                             id="inputsInput14-1"
                             type="text"
+                            value={userForm?.phone || ''}
                             placeholder="99778899"
+                            onChange={(e) => handleUserInputChange('phone', e.target.value)}
                           />
                         </div>
                       </div>
@@ -570,7 +921,9 @@ export default function Settings() {
                         className="mb-2.5 py-2.5 px-3.5 text-sm w-full hover:bg-gray-50 outline-none placeholder-neutral-400 border rounded-lg"
                         id="inputsInput8-1"
                         type="text"
+                        value={userForm?.email || ''}
                         placeholder="ola.nordmann@mail.com"
+                        onChange={(e) => handleUserInputChange('email', e.target.value)}
                       />
                       {/*
                    
@@ -600,6 +953,8 @@ export default function Settings() {
                       <select
                         className="appearance-none py-2 pl-3.5 pr-10 text-sm w-full h-full bg-white hover:bg-gray-50 outline-none border border-neutral-200 focus:border-neutral-600 cursor-pointer rounded-lg"
                         id="inputsSelect4-1"
+                        value={userForm?.language || 'NO'}
+                        onChange={(e) => handleUserInputChange('language', e.target.value)}
                       >
                         <option value="NO">Norsk</option>
                         <option value="SE">Svenska</option>
@@ -629,15 +984,33 @@ export default function Settings() {
               </div>
             </div>
           </section>
-        </div>
+
+          <section className="py-4 overflow-hidden">
+            <div className="container px-4 mx-auto">
+            </div>
+          </section>
+
+          {/* Correctly placed Save Button at the bottom */}
+          <div className="container px-4 mx-auto pt-4 pb-6 flex justify-end">
+            <button
+              className={`px-6 py-2.5 text-sm font-medium text-white rounded-lg transition duration-300 ${(companyDirty || userDirty) ? 'bg-primary hover:bg-secondary' : 'bg-gray-400 cursor-not-allowed'}`}
+              onClick={handleSaveAll}
+              disabled={!(companyDirty || userDirty) || savingCompany || savingUser}
+            >
+              {(savingCompany || savingUser) ? 'Lagrer…' : 'Lagre'}
+            </button>
+          </div>
+
+        </div> // This is the closing div for the settingspage === 1 block
       )}
       {/*=========================================================================*/}
-
       {settingspage === 2 && (
         <div className="w-full flex flex-col pb-10">
           <div className="container px-4 mx-auto pt-4">
             <div className="flex flex-row justify-between items-center">
-              <h2 className="text-2xl font-semibold pb-2">Brukere</h2>
+              <h2 className="text-2xl font-semibold pb-2">
+                Brukere ({companyUsers.length})
+              </h2>
               <p></p>
               <div className="w-auto px-4">
                 <div
@@ -658,7 +1031,7 @@ export default function Settings() {
                     Legg til, administrer og fjern brukere
                   </h3>
                   <p className="text-sm text-neutral-500">
-                    Du har brukt 3/4 tilgjengelige lisenser.{" "}
+                    Du har brukt {companyUsers.length}/{companyUsers.length + 1} tilgjengelige lisenser.{" "}
                     <span
                       onClick={() => setSettingspage(4)}
                       className="underline text-primary cursor-pointer"
@@ -668,35 +1041,65 @@ export default function Settings() {
                   </p>
                 </div>
                 <div className="flex flex-wrap -m-3">
-                  {users.map((user, index) => (
-                    <div key={index} className="w-full p-3">
-                      <div className="flex flex-wrap items-center justify-between -m-2">
-                        <div className="w-auto p-2">
-                          <div className="flex flex-wrap items-center -m-1.5">
-                            <div className="w-auto p-1.5">
-                              <img className="h-12" src={user.image} />
-                            </div>
-                            <div className="w-auto p-1.5">
-                              <h3 className="font-heading mb-1 font-semibold">
-                                {user.name} {user.lastname}
-                              </h3>
-                              <p className="text-xs text-neutral-500">
-                                {user.email}
-                              </p>
+                  {loadingUsers ? (
+                    <div className="w-full p-3 text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        <LuLoader className="animate-spin" size={20} />
+                        <p className="text-sm text-neutral-500">Loading users...</p>
+                      </div>
+                    </div>
+                  ) : companyUsers.length === 0 ? (
+                    <div className="w-full p-3 text-center">
+                      <p className="text-sm text-neutral-500">No users found. Create your first user!</p>
+                    </div>
+                  ) : (
+                    companyUsers.map((user: any, index: number) => (
+                      <div key={user.id || index} className="w-full p-3">
+                        <div className="flex flex-wrap items-center justify-between -m-2">
+                          <div className="w-auto p-2">
+                            <div className="flex flex-wrap items-center -m-1.5">
+                              <div className="w-auto p-1.5">
+                                <img 
+                                  className="h-12 w-12 rounded-full object-cover" 
+                                  src={user.image || '/assets/elements/avatar.png'} 
+                                  alt={`${user.firstName || user.name} ${user.lastName || user.lastname}`}
+                                />
+                              </div>
+                              <div className="w-auto p-1.5">
+                                <h3 className="font-heading mb-1 font-semibold">
+                                  {user.firstName || user.name} {user.lastName || user.lastname}
+                                </h3>
+                                <p className="text-xs text-neutral-500">
+                                  {user.email}
+                                </p>
+                                <p className="text-xs text-neutral-400">
+                                  {user.role || 'user'}
+                                </p>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                        <div className="w-auto p-2">
-                          <div
-                            onClick={() => setSelectedUser(user)}
-                            className="cursor-pointer inline-flex flex-wrap items-center px-2.5 py-2.5 text-sm font-medium text-white bg-primary hover:bg-secondary rounded-lg transition duration-300"
-                          >
-                            <LuSettings2 />
+                          <div className="w-auto p-2">
+                            <div className="flex gap-2">
+                              <div
+                                onClick={() => setSelectedUser(user)}
+                                className="cursor-pointer inline-flex flex-wrap items-center px-2.5 py-2.5 text-sm font-medium text-white bg-primary hover:bg-secondary rounded-lg transition duration-300"
+                                title="Settings"
+                              >
+                                <LuSettings2 />
+                              </div>
+                              <div
+                                onClick={() => handleDeleteUser(user)}
+                                className="cursor-pointer inline-flex flex-wrap items-center px-2.5 py-2.5 text-sm font-medium text-white bg-red-500 hover:bg-red-600 rounded-lg transition duration-300"
+                                title="Delete User"
+                              >
+                                <LuTrash />
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
                 {selectedUser && (
                   <User
@@ -705,7 +1108,17 @@ export default function Settings() {
                   />
                 )}
                 {createUserModal && (
-                  <CreateUser onClose={() => setCreateUserModal(false)} />
+                  <CreateUser 
+                    onClose={() => setCreateUserModal(false)} 
+                    onSuccess={handleCreateUserSuccess}
+                  />
+                )}
+                {deleteUserModal && userToDelete && (
+                  <DeleteUser 
+                    user={userToDelete}
+                    onClose={() => setDeleteUserModal(false)}
+                    onSuccess={handleDeleteUserSuccess}
+                  />
                 )}
               </div>
             </div>
@@ -989,118 +1402,7 @@ export default function Settings() {
               </div>
             </div>
           </section>
-          {/*
-          <section className="py-4 overflow-hidden">
-            <div className="container px-4 mx-auto">
-              <div className="mb-2.5 bg-neutral-50 border border-neutral-100 rounded-xl">
-                <div className="px-5 py-1">
-                  <div className="w-full overflow-x-auto">
-                    <table className="w-full min-w-max">
-                      <tbody>
-                        <tr>
-                          <td className="py-3 pr-4">
-                            <div className="flex flex-wrap items-center -m-2.5">
-                              <div className="w-auto p-2.5">
-                                <img
-                                  src="/assets/elements/visa.svg"
-                                  alt="Visa"
-                                />
-                              </div>
-                              <div className="w-auto p-2.5">
-                                <span className="block mb-1 text-sm font-semibold">
-                                  Visa ending 4556
-                                </span>
-                                <span className="block text-xs text-neutral-500">
-                                  Utløper 03/2025
-                                </span>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="py-3 pl-4">
-                            <div className="flex items-center justify-end">
-                              <div className="flex items-center mr-5 px-2 py-1.5 bg-green-500 bg-opacity-10 rounded-lg">
-                                <svg
-                                  className="mr-1.5"
-                                  width={16}
-                                  height={17}
-                                  viewBox="0 0 16 17"
-                                  fill="none"
-                                  xmlns="http://www.w3.org/2000/svg"
-                                >
-                                  <path
-                                    fillRule="evenodd"
-                                    clipRule="evenodd"
-                                    d="M7.99961 14.9C11.5342 14.9 14.3996 12.0346 14.3996 8.50001C14.3996 4.96538 11.5342 2.10001 7.99961 2.10001C4.46499 2.10001 1.59961 4.96538 1.59961 8.50001C1.59961 12.0346 4.46499 14.9 7.99961 14.9ZM10.9653 7.46569C11.2777 7.15327 11.2777 6.64674 10.9653 6.33432C10.6529 6.0219 10.1463 6.0219 9.83392 6.33432L7.19961 8.96863L6.16529 7.93432C5.85288 7.6219 5.34634 7.6219 5.03392 7.93432C4.7215 8.24674 4.7215 8.75327 5.03392 9.06569L6.63392 10.6657C6.94634 10.9781 7.45288 10.9781 7.76529 10.6657L10.9653 7.46569Z"
-                                    fill="#20C43A"
-                                  />
-                                </svg>
-                                <span className="text-xs text-green-500 font-medium">
-                                  Primær
-                                </span>
-                              </div>
-                              <a
-                                className="inline-block text-sm hover:text-neutral-700 font-medium"
-                                href="#"
-                              >
-                                Rediger
-                              </a>
-                            </div>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-              <div className="bg-neutral-50 border border-neutral-100 rounded-xl">
-                <div className="px-5 py-1">
-                  <div className="w-full overflow-x-auto">
-                    <table className="w-full min-w-max">
-                      <tbody>
-                        <tr>
-                          <td className="py-3 pr-4">
-                            <div className="flex flex-wrap items-center -m-2.5">
-                              <div className="w-auto p-2.5">
-                                <img
-                                  src="/assets/elements/visa.svg"
-                                  alt="Visa"
-                                />
-                              </div>
-                              <div className="w-auto p-2.5">
-                                <span className="block mb-1 text-sm font-semibold">
-                                  Visa ending 7755
-                                </span>
-                                <span className="block text-xs text-neutral-500">
-                                  Utløper 04/2027
-                                </span>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="py-3 pl-4">
-                            <div className="flex items-center justify-end">
-                              <a
-                                className="inline-block mr-5 text-sm text-gray-300 font-medium"
-                                href="#"
-                              >
-                                Sett som primær
-                              </a>
-                              <a
-                                className="inline-block text-sm hover:text-neutral-700 font-medium"
-                                href="#"
-                              >
-                                Rediger
-                              </a>
-                            </div>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-          */}
+          
           <div className="container px-4 mx-auto pt-4">
             <div className="flex flex-row justify-between items-center">
               <h2 className="text-2xl font-semibold pb-2">Lisenser</h2>
@@ -1297,18 +1599,17 @@ export default function Settings() {
                     </div>
                   </li>
                 </ul>
-                {/*
-                <div className="inline-flex opacity-25 flex-wrap items-center justify-center px-5 py-3 w-full text-center text-neutral-50 font-medium bg-primary hover:bg-primary rounded-lg transition duration-300">
-                  <LuSquarePen className="mr-2.5" size={16} />
-                  <span className="font-medium">Administrer</span>
-                </div>
-                */}
               </div>
             </div>
           </section>
-          {/*
-          <PaymentHistory />
-          */}
+          <div className="container px-4 mx-auto pt-4 pb-6 flex justify-end">
+            <button
+              className={`px-6 py-2.5 text-sm font-medium text-white rounded-lg transition duration-300 bg-gray-400 cursor-not-allowed`}
+              disabled={true}
+            >
+              Lagre
+            </button>
+          </div>
         </div>
       )}
       {/*=========================================================================*/}

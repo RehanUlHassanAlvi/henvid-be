@@ -9,9 +9,12 @@ export async function POST(request: NextRequest) {
   await dbConnect();
   
   try {
-    // Get token from Authorization header
+    // Get token from cookies or Authorization header
+    const cookieToken = request.cookies.get('token')?.value;
     const authHeader = request.headers.get('authorization');
-    const token = authHeader?.replace('Bearer ', '');
+    const bearerToken = authHeader?.replace('Bearer ', '');
+    
+    const token = cookieToken || bearerToken;
     
     if (!token) {
       return NextResponse.json({ 
@@ -40,9 +43,28 @@ export async function POST(request: NextRequest) {
       await session.terminate('user_logout');
     }
     
-    return NextResponse.json({ 
+    // Clear cookies
+    const response = NextResponse.json({ 
       message: 'Logged out successfully' 
     });
+    
+    response.cookies.set('token', '', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 0, // Expire immediately
+      path: '/'
+    });
+    
+    response.cookies.set('refreshToken', '', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 0, // Expire immediately
+      path: '/'
+    });
+    
+    return response;
     
   } catch (error) {
     console.error('Logout error:', error);

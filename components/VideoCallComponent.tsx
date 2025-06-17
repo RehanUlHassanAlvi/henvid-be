@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import Video from "twilio-video";
+import Video, { Room, LocalVideoTrack, LocalAudioTrack, RemoteParticipant } from "twilio-video";
 import VideoCallControls from "./VideoCallControls";
 
 interface VideoCallComponentProps {
@@ -17,15 +17,15 @@ const VideoCallComponent: React.FC<VideoCallComponentProps> = ({
   identity = "User",
   className = ""
 }) => {
-  const [room, setRoom] = useState(null);
+  const [room, setRoom] = useState<Room | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [participants, setParticipants] = useState([]);
-  const [error, setError] = useState(null);
+  const [participants, setParticipants] = useState<RemoteParticipant[]>([]);
+  const [error, setError] = useState<string | null>(null);
   
-  const localVideoRef = useRef();
-  const remoteVideoRef = useRef();
-  const localVideoTrackRef = useRef(null);
-  const localAudioTrackRef = useRef(null);
+  const localVideoRef = useRef<HTMLDivElement>(null);
+  const remoteVideoRef = useRef<HTMLDivElement>(null);
+  const localVideoTrackRef = useRef<LocalVideoTrack | null>(null);
+  const localAudioTrackRef = useRef<LocalAudioTrack | null>(null);
 
   // Auto-connect when meeting status changes to "started"
   useEffect(() => {
@@ -46,11 +46,15 @@ const VideoCallComponent: React.FC<VideoCallComponentProps> = ({
       setIsConnecting(true);
       setError(null);
       
-      // Get token from your Twilio backend
-      const res = await fetch("https://video-call-be-sooty.vercel.app/api/token", {
+      // Get token from our local API
+      const res = await fetch("/api/videocalls/token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ identity, room: roomCode }),
+        body: JSON.stringify({ 
+          roomCode, 
+          participantType: identity.includes('host') ? 'host' : 'guest',
+          participantId: identity
+        }),
       });
       const data = await res.json();
 
@@ -129,7 +133,7 @@ const VideoCallComponent: React.FC<VideoCallComponentProps> = ({
 
     } catch (error) {
       console.error("Error joining room:", error);
-      setError(`Failed to join room: ${error.message}`);
+      setError(`Failed to join room: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setIsConnecting(false);
     }
   };

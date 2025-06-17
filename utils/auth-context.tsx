@@ -60,9 +60,13 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         setUser(null);
         // Don't set error here as it's normal when not logged in
       } else {
-        setUser(response);
+        // Handle both response.user and direct response formats
+        const userData = (response as any).user || response;
+        console.log('Current user data:', userData);
+        setUser(userData);
       }
     } catch (err) {
+      console.error('Error refreshing user:', err);
       setUser(null);
     } finally {
       setLoading(false);
@@ -113,9 +117,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         return false;
       }
       
-      // Auto-login after successful registration
-      const loginSuccess = await login(userData.email, userData.password);
-      return loginSuccess;
+      // Registration successful, but user needs to verify email
+      // Don't auto-login anymore
+      setLoading(false);
+      return true;
     } catch (err) {
       setError('Registration failed');
       setLoading(false);

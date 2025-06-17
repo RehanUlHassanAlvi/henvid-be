@@ -47,8 +47,6 @@ sessionSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 // Indexes for queries
 sessionSchema.index({ user: 1, isActive: 1 });
-sessionSchema.index({ token: 1 });
-sessionSchema.index({ refreshToken: 1 });
 sessionSchema.index({ lastActivity: -1 });
 sessionSchema.index({ company: 1, isActive: 1 });
 

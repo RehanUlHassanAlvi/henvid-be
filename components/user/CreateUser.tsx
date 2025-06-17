@@ -1,9 +1,10 @@
 "use client";
 import Image from "next/image";
-import React, { useState } from "react";
-import { LuX } from "react-icons/lu";
+import React, { useState, useRef } from "react";
+import { LuX, LuUpload, LuImage } from "react-icons/lu";
 import { userApi, handleApiError } from "@/utils/api";
 import { useAuth } from "@/utils/auth-context";
+import { SupabaseImageService } from "@/utils/supabase";
 
 interface CreateUserProps {
   onClose: () => void;
@@ -13,13 +14,18 @@ interface CreateUserProps {
 export default function CreateUser({ onClose, onSuccess }: CreateUserProps) {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
     email: '',
     phone: '',
-    role: 'user'
+    role: 'user',
+    image: ''
   });
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -29,6 +35,35 @@ export default function CreateUser({ onClose, onSuccess }: CreateUserProps) {
       [name]: value
     }));
     if (error) setError(null);
+  };
+
+  const handleImageUpload = async (file: File) => {
+    setUploadingImage(true);
+    setError(null);
+
+    try {
+      // Generate a temporary user ID for the avatar filename
+      const tempUserId = `temp_${Date.now()}`;
+      const imageUrl = await SupabaseImageService.uploadAvatar(file, tempUserId);
+      
+      setFormData(prev => ({ ...prev, image: imageUrl }));
+      setSelectedImage(imageUrl);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Kunne ikke laste opp bilde');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleImageUpload(file);
+    }
+  };
+
+  const triggerFileSelect = () => {
+    fileInputRef.current?.click();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -314,26 +349,41 @@ export default function CreateUser({ onClose, onSuccess }: CreateUserProps) {
                 >
                   Bilde
                 </label>
-                <div className="flex flex-row">
-                  <div className="w-auto p-1 pr-2">
-                    <Image
-                      src="/assets/elements/avatar2.png"
-                      alt="Uploaded image"
-                      height={200}
-                      width={200}
-                      className="h-10 w-10 object-contain"
-                    />
+                <div className="flex flex-row items-center gap-3">
+                  <div className="w-auto">
+                    <div className="h-12 w-12 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center">
+                      {selectedImage ? (
+                        <Image
+                          src={selectedImage}
+                          alt="User avatar"
+                          height={48}
+                          width={48}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <LuImage className="h-6 w-6 text-gray-400" />
+                      )}
+                    </div>
                   </div>
-                  <input
-                    className="appearance-none px-6 py-3.5 w-full text-sm text-gray-500 font-bold bg-white placeholder-gray-400 outline-none border border-gray-200 rounded-xl"
-                    id="createuser-image"
-                    type="upload"
-                    placeholder="Last opp et bilde av brukeren"
-                  />
-                  <div className="flex whitespace-nowrap items-center justify-center px-6 py-0.5 text-sm text-white font-semibold bg-neutral-600 rounded-tr-lg rounded-br-lg focus:ring-4 focus:ring-neutral-400">
-                    Last opp
+                  <div className="flex-1">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFileSelect}
+                      className="hidden"
+                      id="createuser-image"
+                    />
+                    <div
+                      onClick={triggerFileSelect}
+                      className="flex items-center justify-center px-4 py-3 text-sm text-gray-600 bg-white border-2 border-dashed border-gray-300 rounded-lg hover:border-primary hover:text-primary cursor-pointer transition-colors"
+                    >
+                      <LuUpload className="h-4 w-4 mr-2" />
+                      {uploadingImage ? 'Laster opp...' : 'Last opp profilbilde'}
+                    </div>
                   </div>
                 </div>
+
               </div>
               <div className="flex flex-row gap-0">
                 <div className="w-full p-3">

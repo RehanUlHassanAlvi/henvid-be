@@ -14,6 +14,8 @@ export default function Loginpage() {
     email: '',
     password: ''
   });
+  const [resendingVerification, setResendingVerification] = useState(false);
+  const [showResendButton, setShowResendButton] = useState(false);
 
   useEffect(() => {
     if (shouldRedirect) {
@@ -41,6 +43,33 @@ export default function Loginpage() {
     const success = await login(formData.email, formData.password);
     if (success) {
       router.push('/dashboard');
+    } else if (error && error.includes('Email not verified')) {
+      setShowResendButton(true);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    setResendingVerification(true);
+    try {
+      const response = await fetch('/api/auth/send-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: formData.email })
+      });
+
+      const data = await response.json();
+      
+      if (response.ok) {
+        // Redirect to verification page
+        router.push(`/verify-email?email=${encodeURIComponent(formData.email)}`);
+      } else {
+        clearError();
+        // The verification API will handle the error display
+      }
+    } catch (err) {
+      console.error('Failed to resend verification:', err);
+    } finally {
+      setResendingVerification(false);
     }
   };
   return (
@@ -64,6 +93,25 @@ export default function Loginpage() {
                 {error && (
                   <div className="mt-4 p-3 bg-red-100 border border-red-300 text-red-700 rounded-lg">
                     {error}
+                    {showResendButton && (
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={handleResendVerification}
+                          disabled={resendingVerification}
+                          className="px-4 py-2 text-sm bg-primary hover:bg-secondary text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {resendingVerification ? 'Sender...' : 'Send ny kode'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => router.push(`/verify-email?email=${encodeURIComponent(formData.email)}`)}
+                          className="px-4 py-2 text-sm bg-gray-500 hover:bg-gray-600 text-white rounded-lg"
+                        >
+                          Gå til verifisering
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

@@ -55,7 +55,8 @@ export default function Registerpage() {
     });
     
     if (success) {
-      router.push('/dashboard');
+      // Redirect to email verification page
+      router.push(`/verify-email?email=${encodeURIComponent(formData.email)}`);
     }
   };
   return (

@@ -1,9 +1,35 @@
-import React from "react";
+import React, { useState } from "react";
+import { userApi, handleApiError } from "@/utils/api";
+
 interface DeleteUserProps {
+  user: any;
   onClose: () => void;
+  onSuccess?: () => void;
 }
 
-export default function DeleteUser({ onClose }: DeleteUserProps) {
+export default function DeleteUser({ user, onClose, onSuccess }: DeleteUserProps) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleDelete = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await userApi.deleteUser(user.id);
+      
+      if (response.error) {
+        setError(handleApiError(response));
+      } else {
+        onSuccess?.();
+        onClose();
+      }
+    } catch (err) {
+      setError('Failed to delete user');
+    } finally {
+      setLoading(false);
+    }
+  };
   return (
     <section className="fixed inset-0 z-50 flex items-center justify-center flex-wrap py-20 bg-neutral-500 bg-opacity-80 overflow-y-auto">
       <div className="container px-4 mx-auto">
@@ -25,26 +51,38 @@ export default function DeleteUser({ onClose }: DeleteUserProps) {
           <h3 className="font-heading mb-2 text-xl font-semibold">
             Er du sikker på at du ønsker slette brukeren?
           </h3>
+          <p className="mb-2 text-neutral-700 font-medium">
+            {user.firstName || user.name} {user.lastName || user.lastname}
+          </p>
           <p className="mb-6 text-neutral-500">
             Det kan ikke reverseres men brukeren kan opprettes på nytt senere om
             ønskelig.
           </p>
+          
+          {error && (
+            <div className="mb-4 p-3 bg-red-100 border border-red-300 text-red-700 rounded text-sm">
+              {error}
+            </div>
+          )}
+          
           <div className="flex flex-wrap justify-center -m-1">
             <div className="w-auto p-1">
-              <div
-                className="inline-flex cursor-pointer px-5 py-2.5 text-sm font-medium border border-neutral-200 hover:border-neutral-300 rounded-lg"
+              <button
+                className="inline-flex cursor-pointer px-5 py-2.5 text-sm font-medium border border-neutral-200 hover:border-neutral-300 rounded-lg disabled:opacity-50"
                 onClick={onClose}
+                disabled={loading}
               >
                 Avbryt
-              </div>
+              </button>
             </div>
             <div className="w-auto p-1">
-              <div
-                className="inline-flex cursor-pointer px-5 py-2.5 text-sm text-neutral-50 font-medium bg-primary hover:bg-secondary rounded-lg transition duration-300"
-                onClick={onClose}
+              <button
+                className="inline-flex cursor-pointer px-5 py-2.5 text-sm text-neutral-50 font-medium bg-red-500 hover:bg-red-600 rounded-lg transition duration-300 disabled:opacity-50"
+                onClick={handleDelete}
+                disabled={loading}
               >
-                Ja, slett
-              </div>
+                {loading ? 'Sletter...' : 'Ja, slett'}
+              </button>
             </div>
           </div>
         </div>

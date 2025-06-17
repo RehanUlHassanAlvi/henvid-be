@@ -1,4 +1,6 @@
 import mongoose, { Schema, models, model } from 'mongoose';
+// Import Company to ensure it's registered for population
+import './Company';
 
 const userSchema = new Schema({
   firstName: { type: String, required: true },
@@ -17,6 +19,7 @@ const userSchema = new Schema({
   
   // Authentication & Security
   emailVerified: { type: Boolean, default: false },
+  emailVerifiedAt: { type: Date },
   emailVerificationToken: { type: String },
   passwordResetToken: { type: String },
   passwordResetExpires: { type: Date },
@@ -67,7 +70,6 @@ userSchema.virtual('reviews').get(function() {
 
 // Indexes for analytics and queries
 userSchema.index({ company: 1, role: 1 });
-userSchema.index({ email: 1 });
 userSchema.index({ isActive: 1, lastActivityAt: -1 });
 userSchema.index({ totalVideoCalls: -1 });
 

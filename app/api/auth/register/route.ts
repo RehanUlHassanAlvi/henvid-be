@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import dbConnect from '../../../../utils/dbConnect';
-import User from '../../../models/User';
-import Company from '../../../models/Company';
+import { User, Company, EmailVerification } from '../../../models';
+import { EmailService, generateVerificationCode } from '../../../../utils/emailService';
 
 export async function POST(request: NextRequest) {
   await dbConnect();
@@ -90,6 +90,31 @@ export async function POST(request: NextRequest) {
       await company.save();
     }
     
+        // Generate verification code and send email
+    const verificationCode = generateVerificationCode();
+    
+    // Save verification code to database
+    const verification = new EmailVerification({
+      email: email.toLowerCase(),
+      verificationCode,
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000) // 15 minutes
+    });
+    
+    await verification.save();
+    
+    // Send verification email
+    const emailSent = await EmailService.sendVerificationEmail(
+      email,
+      firstName,
+      verificationCode
+    );
+    
+    if (!emailSent) {
+      // Clean up verification record if email failed
+      await EmailVerification.findByIdAndDelete(verification._id);
+      console.warn('Failed to send verification email, but user was created');
+    }
+
     // Remove sensitive data from response
     const userResponse = {
       id: user._id,
@@ -110,10 +135,12 @@ export async function POST(request: NextRequest) {
       createdAt: user.createdAt,
       reviews: 0 // New user has no reviews
     };
-    
+
     return NextResponse.json({
-      message: 'User registered successfully',
+      message: 'User registered successfully. Please check your email for verification code.',
       user: userResponse,
+      requiresVerification: true,
+      verificationEmailSent: emailSent,
       company: company ? {
         id: company._id,
         name: company.name,
@@ -125,14 +152,15 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Registration error:', error);
     
-    // Handle duplicate key errors
-    if (error.code === 11000) {
-      const field = Object.keys(error.keyPattern)[0];
+        // Handle duplicate key errors
+    if (error instanceof Error && 'code' in error && error.code === 11000) {
+      const keyPattern = (error as any).keyPattern;
+      const field = Object.keys(keyPattern)[0];
       return NextResponse.json({ 
         error: `${field} already exists` 
       }, { status: 409 });
     }
-    
+
     return NextResponse.json({ 
       error: 'Internal server error' 
     }, { status: 500 });
