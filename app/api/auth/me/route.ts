@@ -10,13 +10,16 @@ export async function GET(request: NextRequest) {
   
   try {
     // Get token from cookies or Authorization header
-    const cookieToken = request.cookies.get('token')?.value;
+    const cookieToken = request.cookies.get('auth-token')?.value;
     const authHeader = request.headers.get('authorization');
     const bearerToken = authHeader?.replace('Bearer ', '');
     
     const token = cookieToken || bearerToken;
     
+    console.log('Auth/me request received. Cookies:', request.cookies.getAll(), 'Authorization header:', authHeader);
+    
     if (!token) {
+      console.log('No token provided in request.');
       return NextResponse.json({ 
         error: 'No token provided' 
       }, { status: 401 });

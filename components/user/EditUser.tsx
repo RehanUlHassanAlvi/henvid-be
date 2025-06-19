@@ -1,12 +1,140 @@
+"use client";
 import Image from "next/image";
-import React from "react";
-import { LuX } from "react-icons/lu";
+import React, { useState, useEffect, useRef } from "react";
+import { LuX, LuUpload, LuImage } from "react-icons/lu";
+import { userApi, handleApiError } from "@/utils/api";
+import { SupabaseImageService } from "@/utils/supabase";
 
 interface EditUserProps {
   onClose: () => void;
+  userId: string;
+  onUserUpdated?: () => void;
 }
 
-export default function CreateUser({ onClose }: EditUserProps) {
+export default function EditUser({ onClose, userId, onUserUpdated }: EditUserProps) {
+  const [loading, setLoading] = useState(false);
+  const [loadingData, setLoadingData] = useState(true);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  const [formData, setFormData] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    image: ''
+  });
+
+  // Load user data on component mount
+  useEffect(() => {
+    if (userId && userId !== 'undefined' && userId !== 'null') {
+      fetchUserData();
+    } else {
+      setError('Invalid user ID provided');
+      setLoadingData(false);
+    }
+  }, [userId]);
+
+  const fetchUserData = async () => {
+    setLoadingData(true);
+    try {
+      console.log('Fetching user data for ID:', userId);
+      const response = await userApi.getUser(userId);
+      console.log('API response:', response);
+      
+      if (response.error) {
+        console.error('API error:', response.error);
+        setError(handleApiError(response));
+      } else if (response.data) {
+        const userData = response.data;
+        console.log('User data received:', userData);
+        setFormData({
+          firstName: userData.firstName || '',
+          lastName: userData.lastName || '',
+          email: userData.email || '',
+          phone: userData.phone || '',
+          image: userData.image || ''
+        });
+        setSelectedImage(userData.image || null);
+        setError(null); // Clear any previous errors
+      } else {
+        console.error('No data in response:', response);
+        setError('No user data received');
+      }
+    } catch (error) {
+      console.error('Fetch error:', error);
+      setError('Kunne ikke laste brukerdata');
+    } finally {
+      setLoadingData(false);
+    }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+    if (error) setError(null);
+  };
+
+  const handleImageUpload = async (file: File) => {
+    setUploadingImage(true);
+    setError(null);
+
+    try {
+      const imageUrl = await SupabaseImageService.uploadAvatar(file, userId);
+      
+      setFormData(prev => ({ ...prev, image: imageUrl }));
+      setSelectedImage(imageUrl);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Kunne ikke laste opp bilde');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleImageUpload(file);
+    }
+  };
+
+  const triggerFileSelect = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!formData.firstName || !formData.lastName || !formData.email) {
+      setError('Fornavn, etternavn og epost er påkrevd');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await userApi.updateUser(userId, formData);
+
+      if (response.error) {
+        setError(handleApiError(response));
+      } else {
+        // Success - close modal and refresh
+        onUserUpdated?.();
+        onClose();
+      }
+    } catch (err) {
+      setError('Kunne ikke oppdatere bruker');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <>
       <section className="fixed inset-0 flex items-center justify-center flex-wrap overflow-y-auto">
@@ -25,6 +153,11 @@ export default function CreateUser({ onClose }: EditUserProps) {
                   <p className="text-sm text-neutral-400 font-medium">
                     Oppdater informasjonen om brukeren
                   </p>
+                  {error && (
+                    <div className="mt-2 p-2 bg-red-100 border border-red-300 text-red-700 rounded text-sm">
+                      {error}
+                    </div>
+                  )}
                 </div>
                 <div className="w-10 p-2">
                   <button onClick={onClose} className="relative top-1">
@@ -32,114 +165,161 @@ export default function CreateUser({ onClose }: EditUserProps) {
                   </button>
                 </div>
               </div>
-              <div className="w-full p-3">
-                <label
-                  className="block mb-2 text-sm text-gray-500 font-bold"
-                  htmlFor="createuser-image"
-                >
-                  Bilde
-                </label>
-                <div className="flex flex-row">
-                  <div className="w-auto p-1 pr-2">
-                    <Image
-                      src="/assets/elements/avatar2.png"
-                      alt="Uploaded image"
-                      height={200}
-                      width={200}
-                      className="h-10 w-10 object-contain"
+              
+              <form onSubmit={handleSubmit}>
+                {loadingData ? (
+                  <div className="w-full p-3">
+                    <div className="flex items-center justify-center py-8">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                      <span className="ml-3 text-gray-600">Laster brukerdata...</span>
+                    </div>
+                  </div>
+                ) : (
+                <>
+                <div className="w-full p-3">
+                  <label
+                    className="block mb-2 text-sm text-gray-500 font-bold"
+                    htmlFor="edituser-image"
+                  >
+                    Bilde
+                  </label>
+                  <div className="flex flex-row items-center gap-3">
+                    <div className="w-auto">
+                      <div className="h-12 w-12 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center">
+                        {selectedImage ? (
+                          <Image
+                            src={selectedImage}
+                            alt="User avatar"
+                            height={48}
+                            width={48}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <LuImage className="h-6 w-6 text-gray-400" />
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex-1">
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleFileSelect}
+                        className="hidden"
+                        id="edituser-image"
+                      />
+                      <div
+                        onClick={triggerFileSelect}
+                        className="flex items-center justify-center px-4 py-3 text-sm text-gray-600 bg-white border-2 border-dashed border-gray-300 rounded-lg hover:border-primary hover:text-primary cursor-pointer transition-colors"
+                      >
+                        <LuUpload className="h-4 w-4 mr-2" />
+                        {uploadingImage ? 'Laster opp...' : 'Last opp profilbilde'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="flex flex-row gap-0">
+                  <div className="w-full p-3">
+                    <label
+                      className="block mb-2 text-sm text-gray-500 font-bold"
+                      htmlFor="edituser-firstname"
+                    >
+                      Fornavn *
+                    </label>
+                    <input
+                      className="appearance-none px-6 py-3.5 w-full text-lg text-gray-500 font-bold bg-white placeholder-gray-500 outline-none border border-gray-200 focus:ring-4 focus:ring-red-200 rounded-xl"
+                      id="edituser-firstname"
+                      name="firstName"
+                      type="text"
+                      value={formData.firstName}
+                      onChange={handleInputChange}
+                      placeholder="Fornavn"
+                      required
                     />
                   </div>
-                  <input
-                    className="appearance-none px-6 py-3.5 w-full text-sm text-gray-500 font-bold bg-white placeholder-gray-400 outline-none border border-gray-200 rounded-xl"
-                    id="createuser-image"
-                    type="upload"
-                    placeholder="Last opp et bilde av brukeren"
-                  />
-                  <div className="flex whitespace-nowrap items-center justify-center px-6 py-0.5 text-sm text-white font-semibold bg-neutral-600 rounded-tr-lg rounded-br-lg focus:ring-4 focus:ring-neutral-400">
-                    Last opp
+                  <div className="w-full p-3">
+                    <label
+                      className="block mb-2 text-sm text-gray-500 font-bold"
+                      htmlFor="edituser-lastname"
+                    >
+                      Etternavn *
+                    </label>
+                    <input
+                      className="appearance-none px-6 py-3.5 w-full text-lg text-gray-500 font-bold bg-white placeholder-gray-500 outline-none border border-gray-200 focus:ring-4 focus:ring-red-200 rounded-xl"
+                      id="edituser-lastname"
+                      name="lastName"
+                      type="text"
+                      value={formData.lastName}
+                      onChange={handleInputChange}
+                      placeholder="Etternavn"
+                      required
+                    />
                   </div>
                 </div>
-              </div>
-              <div className="flex flex-row gap-0">
+                
                 <div className="w-full p-3">
                   <label
                     className="block mb-2 text-sm text-gray-500 font-bold"
-                    htmlFor="createuser-name"
+                    htmlFor="edituser-email"
                   >
-                    Fornavn
+                    Epostadresse *
                   </label>
-
                   <input
                     className="appearance-none px-6 py-3.5 w-full text-lg text-gray-500 font-bold bg-white placeholder-gray-500 outline-none border border-gray-200 focus:ring-4 focus:ring-red-200 rounded-xl"
-                    id="createuser-name"
+                    id="edituser-email"
+                    name="email"
                     type="email"
-                    placeholder=""
+                    value={formData.email}
+                    onChange={handleInputChange}
+                    placeholder="bruker@firma.no"
+                    required
                   />
                 </div>
+                
                 <div className="w-full p-3">
                   <label
                     className="block mb-2 text-sm text-gray-500 font-bold"
-                    htmlFor="createuser-lastname"
+                    htmlFor="edituser-phone"
                   >
-                    Etternavn
+                    Telefonnummer
                   </label>
-
                   <input
                     className="appearance-none px-6 py-3.5 w-full text-lg text-gray-500 font-bold bg-white placeholder-gray-500 outline-none border border-gray-200 focus:ring-4 focus:ring-red-200 rounded-xl"
-                    id="createuser-lastname"
-                    type="email"
-                    placeholder=""
+                    id="edituser-phone"
+                    name="phone"
+                    type="tel"
+                    value={formData.phone}
+                    onChange={handleInputChange}
+                    placeholder="12345678"
                   />
                 </div>
-              </div>
-              <div className="w-full p-3">
-                <label
-                  className="block mb-2 text-sm text-gray-500 font-bold"
-                  htmlFor="createuser-email"
-                >
-                  Epostadresse
-                </label>
-                <input
-                  className="appearance-none px-6 py-3.5 w-full text-lg text-gray-500 font-bold bg-white placeholder-gray-500 outline-none border border-gray-200 focus:ring-4 focus:ring-red-200 rounded-xl"
-                  id="createuser-email"
-                  type="email"
-                  placeholder=""
-                />
-              </div>
-              <div className="w-full p-3">
-                <label
-                  className="block mb-2 text-sm text-gray-500 font-bold"
-                  htmlFor="createuser-phone"
-                >
-                  Telefonnummer
-                </label>
-                <input
-                  className="appearance-none px-6 py-3.5 w-full text-lg text-gray-500 font-bold bg-white placeholder-gray-500 outline-none border border-gray-200 focus:ring-4 focus:ring-red-200 rounded-xl"
-                  id="createuser-phone"
-                  type="tel"
-                  placeholder=""
-                />
-              </div>
-              <div className="w-full p-3">
-                <div className="flex flex-nowrap md:justify-end -m-2">
-                  <div className="w-full p-2">
-                    <div
-                      onClick={onClose}
-                      className="block cursor-pointer px-8 py-3.5 text-lg text-center text-tertiary font-bold bg-bg hover:bg-white border border-gray-200 focus:ring-4 focus:ring-red-200 rounded-xl"
-                    >
-                      Avbryt
+                
+                <div className="w-full p-3">
+                  <div className="flex flex-nowrap md:justify-end -m-2">
+                    <div className="w-full p-2">
+                      <button
+                        type="button"
+                        onClick={onClose}
+                        className="block cursor-pointer px-8 py-3.5 text-lg text-center text-tertiary font-bold bg-bg hover:bg-white border border-gray-200 focus:ring-4 focus:ring-red-200 rounded-xl w-full"
+                      >
+                        Avbryt
+                      </button>
                     </div>
-                  </div>
-                  <div className="w-full p-2">
-                    <div
-                      onClick={onClose}
-                      className="block cursor-pointer px-8 py-3.5 text-lg text-center text-white font-bold bg-primary hover:bg-secondary focus:ring-4 focus:ring-red-200 rounded-xl"
-                    >
-                      Oppdater
+                    <div className="w-full p-2">
+                      <button
+                        type="submit"
+                        disabled={loading || !formData.firstName || !formData.lastName || !formData.email}
+                        className="block cursor-pointer px-8 py-3.5 text-lg text-center text-white font-bold bg-primary hover:bg-secondary focus:ring-4 focus:ring-red-200 rounded-xl w-full disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {loading ? 'Oppdaterer...' : 'Oppdater'}
+                      </button>
                     </div>
                   </div>
                 </div>
-              </div>
+                </>
+                )}
+              </form>
             </div>
           </div>
         </div>

@@ -2,7 +2,7 @@ import mongoose, { Schema, models, model } from 'mongoose';
 
 const companySchema = new Schema({
   name: { type: String, required: true },
-  orgNumber: { type: String, required: true, unique: true },
+  orgNumber: { type: String, required: true, unique: true, index: true },
   industry: { type: String },
   country: { type: String, default: 'NO' },
   language: { type: String, default: 'nb-NO' },
@@ -80,7 +80,6 @@ const companySchema = new Schema({
 }, { timestamps: true });
 
 // Indexes for queries and analytics
-companySchema.index({ orgNumber: 1 });
 companySchema.index({ isActive: 1, createdAt: -1 });
 companySchema.index({ 'analytics.totalCalls': -1 });
 companySchema.index({ 'analytics.totalRevenue': -1 });

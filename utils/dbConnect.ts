@@ -19,7 +19,17 @@ async function dbConnect() {
   if (!cached.promise) {
     cached.promise = mongoose.connect(MONGODB_URI, {
       bufferCommands: false,
-    }).then((mongoose) => {
+    }).then(async (mongoose) => {
+      // Wait for connection to be open before checking indexes
+      await mongoose.connection.asPromise();
+      // One-time check for duplicate indexes on Company collection
+      const companyCollection = mongoose.connection.collection('companies');
+      const indexes = await companyCollection.indexes();
+      const nameIndex = indexes.find(index => index.key && 'name' in index.key);
+      if (nameIndex && nameIndex.name) {
+        console.log('Dropping duplicate index on name field in companies collection', nameIndex.name);
+        await companyCollection.dropIndex(nameIndex.name);
+      }
       return mongoose;
     });
   }

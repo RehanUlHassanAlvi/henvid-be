@@ -1,16 +1,116 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { LuFileKey2 } from "react-icons/lu";
 import { RiDeleteBin6Line } from "react-icons/ri";
+
 interface EditLicenseProps {
+  license?: any;
+  users?: any[];
   onClose: () => void;
+  onSave?: (licenseId: string, licenseData: any) => Promise<void>;
+  onDelete?: (licenseId: string) => Promise<void>;
+  onAssign?: (licenseId: string, userId: string) => Promise<void>;
+  onUnassign?: (licenseId: string) => Promise<void>;
+  saving?: boolean;
 }
 
-export default function EditLicense({ onClose }: EditLicenseProps) {
+export default function EditLicense({ 
+  license, 
+  users = [], 
+  onClose, 
+  onSave, 
+  onDelete, 
+  onAssign, 
+  onUnassign, 
+  saving = false 
+}: EditLicenseProps) {
   const [deleteState, setDeleteState] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState<string>('');
+  const [formData, setFormData] = useState({
+    type: 'standard',
+    status: 'active',
+    validFrom: '',
+    validUntil: '',
+    maxUsers: 1,
+    maxCalls: 100,
+    maxStorage: 1000
+  });
+
+  useEffect(() => {
+    if (license) {
+      setFormData({
+        type: license.type || 'standard',
+        status: license.status || 'active',
+        validFrom: license.validFrom ? new Date(license.validFrom).toISOString().split('T')[0] : '',
+        validUntil: license.validUntil ? new Date(license.validUntil).toISOString().split('T')[0] : '',
+        maxUsers: license.maxUsers || 1,
+        maxCalls: license.maxCalls || 100,
+        maxStorage: license.maxStorage || 1000
+      });
+      setSelectedUserId(license.user?._id || license.user?.id || '');
+    }
+  }, [license]);
+
+  const handleInputChange = (field: string, value: string | number) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const handleSave = async () => {
+    if (onSave && license) {
+      await onSave(license.id || license._id, formData);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (onDelete && license) {
+      await onDelete(license.id || license._id);
+    }
+  };
+
+  const handleUserAssignment = async () => {
+    if (!license) return;
+    
+    const licenseId = license.id || license._id;
+    const currentUserId = license.user?._id || license.user?.id;
+    
+    if (selectedUserId === '') {
+      // Unassign license
+      if (currentUserId && onUnassign) {
+        await onUnassign(licenseId);
+        onClose(); // Close modal after successful unassignment
+      }
+    } else if (selectedUserId !== currentUserId) {
+      // Assign to new user
+      if (onAssign) {
+        await onAssign(licenseId, selectedUserId);
+        onClose(); // Close modal after successful assignment
+      }
+    } else {
+      // No change, just close modal
+      onClose();
+    }
+  };
+
   const handleDeleteState = () => {
     setDeleteState(true);
   };
+
+  const availableUsers = users.filter(user => 
+    !user.licenses || user.licenses.length === 0 || 
+    user.id === (license?.user?._id || license?.user?.id)
+  );
+
+  console.log('EditLicense - users prop:', users);
+  console.log('EditLicense - availableUsers:', availableUsers);
+  console.log('EditLicense - license:', license);
+
+  if (!license) {
+    return null;
+  }
+
   return (
     <section className="fixed inset-0 z-50 flex items-center justify-center flex-wrap py-20 bg-neutral-500 bg-opacity-80 overflow-y-auto">
       <div className="container px-4 mx-auto">
@@ -24,25 +124,35 @@ export default function EditLicense({ onClose }: EditLicenseProps) {
               Slett Lisens
             </h3>
             <p className="mb-6 text-neutral-500">
-              Du kan kun slette overflødig lisenser, den må altså fjernes fra en
-              bruker før den kan slettes.
+              Er du sikker på at du vil slette denne lisensen? Denne handlingen kan ikke angres.
+              {license.user && (
+                <span className="block mt-2 text-red-600">
+                  Lisensen er tildelt {license.user.firstName} {license.user.lastName} og må fjernes først.
+                </span>
+              )}
             </p>
             <div className="flex flex-wrap justify-center -m-1">
               <div className="w-auto p-1">
-                <div
+                <button
                   className="inline-flex cursor-pointer px-5 py-2.5 text-sm font-medium border border-neutral-200 hover:border-neutral-300 rounded-lg"
                   onClick={() => setDeleteState(false)}
+                  disabled={saving}
                 >
                   Avbryt
-                </div>
+                </button>
               </div>
               <div className="w-auto p-1">
-                <div
-                  className="inline-flex cursor-pointer px-5 py-2.5 text-sm text-neutral-50 font-medium bg-primary hover:bg-secondary rounded-lg transition duration-300"
-                  onClick={onClose}
+                <button
+                  className={`inline-flex cursor-pointer px-5 py-2.5 text-sm text-neutral-50 font-medium rounded-lg transition duration-300 ${
+                    saving || license.user
+                      ? 'bg-gray-400 cursor-not-allowed' 
+                      : 'bg-red-600 hover:bg-red-700'
+                  }`}
+                  onClick={handleDelete}
+                  disabled={saving || license.user}
                 >
-                  Slett
-                </div>
+                  {saving ? 'Sletter...' : 'Slett'}
+                </button>
               </div>
             </div>
           </div>
@@ -65,65 +175,52 @@ export default function EditLicense({ onClose }: EditLicenseProps) {
               Tildel Lisens
             </h3>
             <p className="mb-6 text-neutral-500">
-              Tildel lisensen til en ledig bruker, <br />
-              om du velger &quot;Ikke tildelt&quot; vil den være ledig.
+              Tildel lisensen til en tilgjengelig bruker.<br/>
+              Hvis du velger "Ikke tildelt" vil den være tilgjengelig.
             </p>
 
-            <div className="flex flex-wrap justify-between -m-2">
-              <div className="w-full p-2 mb-8">
-                <div className="relative h-full sm:max-w-md ml-auto">
-                  <select
-                    className="appearance-none py-2 pl-3.5 pr-10 text-sm w-full h-full bg-white hover:bg-gray-50 outline-none border border-neutral-200 focus:border-neutral-600 cursor-pointer rounded-lg"
-                    id="inputsSelect4-1"
-                  >
-                    <option value="0">Ikke tildelt</option>
-                    <option value="1" disabled>
-                      Ola Nordmann
+            <div className="space-y-4 mb-6 text-left">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Tildelt bruker
+                </label>
+                <select
+                  className="w-full py-2 px-3 border border-neutral-200 rounded-lg focus:border-neutral-600"
+                  value={selectedUserId}
+                  onChange={(e) => setSelectedUserId(e.target.value)}
+                >
+                  <option value="">Ikke tildelt</option>
+                  {availableUsers.map((user) => (
+                    <option key={user.id || user._id} value={user.id || user._id}>
+                      {user.firstName} {user.lastName} - {user.email}
                     </option>
-                    <option value="2" disabled>
-                      Kari Nordmann
-                    </option>
-                    <option value="3" disabled>
-                      Hennig Olsen
-                    </option>
-                    <option value="4">Henrik Ibsen</option>
-                  </select>
-                  <svg
-                    className="absolute top-1/2 right-4 transform -translate-y-1/2"
-                    width={16}
-                    height={22}
-                    viewBox="0 0 16 22"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                  >
-                    <path
-                      d="M12.6673 9L8.00065 13.6667L3.33398 9"
-                      stroke="#0C1523"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </div>
+                  ))}
+                </select>
               </div>
             </div>
 
             <div className="flex flex-nowrap justify-center -m-1">
               <div className="w-auto p-1">
-                <div
+                <button
                   className="inline-flex cursor-pointer px-5 py-2.5 text-sm font-medium border border-neutral-200 hover:border-neutral-300 rounded-lg"
                   onClick={onClose}
+                  disabled={saving}
                 >
                   Avbryt
-                </div>
+                </button>
               </div>
               <div className="w-auto p-1">
-                <div
-                  className="inline-flex cursor-pointer px-5 py-2.5 text-sm text-neutral-50 font-medium bg-primary hover:bg-secondary rounded-lg transition duration-300"
-                  onClick={onClose}
+                <button
+                  className={`inline-flex cursor-pointer px-5 py-2.5 text-sm text-neutral-50 font-medium rounded-lg transition duration-300 ${
+                    saving 
+                      ? 'bg-gray-400 cursor-not-allowed' 
+                      : 'bg-primary hover:bg-secondary'
+                  }`}
+                  onClick={handleUserAssignment}
+                  disabled={saving}
                 >
-                  Lagre
-                </div>
+                  {saving ? 'Lagrer...' : 'Lagre'}
+                </button>
               </div>
             </div>
           </div>

@@ -5,6 +5,14 @@ interface ApiResponse<T = any> {
   message?: string;
 }
 
+interface LoginResponse extends ApiResponse {
+  multipleAccounts?: boolean;
+  companies?: Array<{ id: string; name: string; logo: string; userId: string }>;
+  user?: any;
+  expiresIn?: number;
+  sessionId?: string;
+}
+
 interface PaginatedResponse<T> {
   data: T[];
   pagination: {
@@ -17,14 +25,15 @@ interface PaginatedResponse<T> {
 
 // Authentication APIs
 export const authApi = {
-  login: async (email: string, password: string): Promise<ApiResponse> => {
+  login: async (email: string, password: string, companyId?: string): Promise<LoginResponse> => {
     try {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, companyId }),
       });
-      return await response.json();
+      const data = await response.json();
+      return data;
     } catch (error) {
       return { error: 'Login failed' };
     }
@@ -148,9 +157,22 @@ export const userApi = {
 
   getUser: async (id: string): Promise<ApiResponse> => {
     try {
-      const response = await fetch(`/api/users/${id}`);
-      return await response.json();
+      const response = await fetch(`/api/users/${id}`, {
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        return { error: errorData.error || 'Failed to fetch user' };
+      }
+      
+      const data = await response.json();
+      return { data };
     } catch (error) {
+      console.error('Get user error:', error);
       return { error: 'Failed to fetch user' };
     }
   },
@@ -180,11 +202,20 @@ export const userApi = {
     try {
       const response = await fetch(`/api/users/${id}`, {
         method: 'PUT',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(userData),
       });
-      return await response.json();
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        return { error: errorData.error || 'Failed to update user' };
+      }
+      
+      const data = await response.json();
+      return { data, message: 'User updated successfully' };
     } catch (error) {
+      console.error('Update user error:', error);
       return { error: 'Failed to update user' };
     }
   },
@@ -285,32 +316,72 @@ export const licenseApi = {
           'Content-Type': 'application/json',
         }
       });
+      
+      if (!response.ok) {
+        console.error('Failed to fetch licenses:', response.status, response.statusText);
+        return { data: [], pagination: { total: 0, page: 1, limit: 50, totalPages: 0 } };
+      }
+      
       const result = await response.json();
       return {
         data: result.licenses || [],
         pagination: result.pagination || { total: 0, page: 1, limit: 50, totalPages: 0 }
       };
     } catch (error) {
+      console.error('Error in getLicenses:', error);
       return { data: [], pagination: { total: 0, page: 1, limit: 50, totalPages: 0 } };
+    }
+  },
+
+  getLicense: async (id: string): Promise<ApiResponse> => {
+    try {
+      const response = await fetch(`/api/licenses/${id}`, {
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        return { error: errorData.error || 'Failed to fetch license' };
+      }
+      
+      const data = await response.json();
+      return { data };
+    } catch (error) {
+      console.error('Get license error:', error);
+      return { error: 'Failed to fetch license' };
     }
   },
 
   createLicense: async (licenseData: {
     type: string;
-    companyId: string;
     userId?: string;
-    features?: any[];
+    features?: any;
+    maxUsers?: number;
+    maxCalls?: number;
+    maxStorage?: number;
     validFrom: string;
     validUntil: string;
+    pricing?: any;
   }): Promise<ApiResponse> => {
     try {
       const response = await fetch('/api/licenses', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(licenseData),
       });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        return { error: errorData.error || 'Failed to create license' };
+      }
+      
       return await response.json();
     } catch (error) {
+      console.error('Create license error:', error);
       return { error: 'Failed to create license' };
     }
   },
@@ -319,11 +390,20 @@ export const licenseApi = {
     try {
       const response = await fetch(`/api/licenses?id=${id}`, {
         method: 'PUT',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(licenseData),
       });
-      return await response.json();
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        return { error: errorData.error || 'Failed to update license' };
+      }
+      
+      const data = await response.json();
+      return { data, message: 'License updated successfully' };
     } catch (error) {
+      console.error('Update license error:', error);
       return { error: 'Failed to update license' };
     }
   },
@@ -332,19 +412,29 @@ export const licenseApi = {
     try {
       const response = await fetch(`/api/licenses?id=${id}`, {
         method: 'DELETE',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
       });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        return { error: errorData.error || 'Failed to delete license' };
+      }
+      
       return await response.json();
     } catch (error) {
+      console.error('Delete license error:', error);
       return { error: 'Failed to delete license' };
     }
   },
 
   assignLicense: async (id: string, userId: string): Promise<ApiResponse> => {
     try {
-      const response = await fetch(`/api/licenses/${id}/assign`, {
-        method: 'POST',
+      const response = await fetch(`/api/licenses?id=${id}`, {
+        method: 'PUT',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId }),
+        body: JSON.stringify({ user: userId }),
       });
       return await response.json();
     } catch (error) {
@@ -354,8 +444,11 @@ export const licenseApi = {
 
   unassignLicense: async (id: string): Promise<ApiResponse> => {
     try {
-      const response = await fetch(`/api/licenses/${id}/unassign`, {
-        method: 'POST',
+      const response = await fetch(`/api/licenses?id=${id}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user: null }),
       });
       return await response.json();
     } catch (error) {

@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 import Link from "next/link";
 import { NO } from "@/components/flags";
@@ -20,6 +20,7 @@ import Settings from "@/components/pages/Settings";
 import Image from "next/image";
 import { emblem, role } from "@/utils/constants";
 import ChangeCompany from "@/components/ChangeCompany";
+import { useAuth } from "@/utils/auth-context";
 
 //=================================================================================================================================================
 function MainScreen() {
@@ -123,6 +124,13 @@ function SettingsScreen() {
 export default function App() {
   const [active, setActive] = useState(1);
   const [changeCompanyModal, setChangeCompanyModal] = useState(false);
+  const { user, refreshUser } = useAuth();
+
+  useEffect(() => {
+    if (!user) {
+      refreshUser();
+    }
+  }, [user, refreshUser]);
 
   const handleChangeCompany = () => {
     setChangeCompanyModal(true);

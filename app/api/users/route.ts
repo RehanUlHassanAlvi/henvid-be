@@ -1,28 +1,48 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import dbConnect from '../../../utils/dbConnect';
-import User from '../../models/User';
-import Company from '../../models/Company';
-import License from '../../models/License';
+import { User, Company, License } from '../../models';
 import EmailVerification from '../../models/EmailVerification';
 import { EmailService, generateVerificationCode } from '../../../utils/emailService';
+import jwt from 'jsonwebtoken';
+
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
 export async function GET(request: NextRequest) {
   await dbConnect();
   
   try {
+    // Get token from cookies or Authorization header
+    const cookieToken = request.cookies.get('auth-token')?.value;
+    const authHeader = request.headers.get('authorization');
+    const bearerToken = authHeader?.replace('Bearer ', '');
+    
+    const token = cookieToken || bearerToken;
+    
+    let decoded;
+    if (token) {
+      try {
+        decoded = jwt.verify(token, JWT_SECRET) as any;
+      } catch (error) {
+        return NextResponse.json({ 
+          error: 'Invalid or expired token' 
+        }, { status: 401 });
+      }
+    } else {
+      return NextResponse.json({ 
+        error: 'No token provided' 
+      }, { status: 401 });
+    }
+    
     const { searchParams } = new URL(request.url);
-    const companyId = searchParams.get('company');
-    const role = searchParams.get('role');
-    const isActive = searchParams.get('isActive');
     const limit = parseInt(searchParams.get('limit') || '50');
     const page = parseInt(searchParams.get('page') || '1');
     const search = searchParams.get('search');
+    const company = searchParams.get('company');
+    const role = searchParams.get('role');
+    const isActive = searchParams.get('isActive');
     
     const query: any = {};
-    if (companyId) query.company = companyId;
-    if (role) query.role = role;
-    if (isActive !== null) query.isActive = isActive === 'true';
     
     // Add search functionality
     if (search) {
@@ -33,35 +53,97 @@ export async function GET(request: NextRequest) {
       ];
     }
     
+    // Filter by company - restrict to the authenticated user's company if not admin
+    if (decoded.role !== 'admin') {
+      if (decoded.companyId) {
+        query.company = decoded.companyId;
+        console.log('Users API: Restricting to user\'s company:', decoded.companyId);
+      } else {
+        return NextResponse.json({ 
+          error: 'No company associated with user' 
+        }, { status: 403 });
+      }
+    } else if (company) {
+      query.company = company;
+      console.log('Users API: Filtering by company (admin):', company);
+    }
+    
+    // Filter by role
+    if (role) {
+      query.role = role;
+    }
+    
+    // Filter by active status
+    if (isActive !== null && isActive !== undefined) {
+      query.isActive = isActive === 'true';
+    }
+    
+    console.log('Users API: Final query:', query);
+    
     const users = await User.find(query)
-      .populate('company', 'name logo')
-      .select('-password')
+      .populate('company', 'name logo orgNumber')
       .sort({ createdAt: -1 })
       .limit(limit)
       .skip((page - 1) * limit);
-    
+
     const total = await User.countDocuments(query);
     
-    // Format users for frontend compatibility
-    const formattedUsers = users.map(user => ({
+    console.log('Users API: Found', users.length, 'users, total:', total);
+    
+    // Additional filtering for company context - ensure users actually have the company
+    const companyFilteredUsers = company ? 
+      users.filter(user => {
+        const userCompanyId = user.company?._id?.toString() || user.company?.toString();
+        const matchesCompany = userCompanyId === company;
+        console.log(`User ${user.email}: company=${userCompanyId}, matches=${matchesCompany}`);
+        return matchesCompany;
+      }) : 
+      users;
+    
+    // Fetch licenses for all users
+    const userIds = companyFilteredUsers.map(user => user._id);
+    const licenses = await License.find({ user: { $in: userIds } })
+      .select('_id type status validFrom validUntil user monthlyCallLimit features price currency')
+      .lean();
+    
+    console.log('Users API: Found licenses for users:', licenses.length);
+    
+    // Create a map of userId to licenses
+    const userLicensesMap = licenses.reduce((acc: any, license: any) => {
+      const userId = license.user.toString();
+      if (!acc[userId]) {
+        acc[userId] = [];
+      }
+      acc[userId].push(license);
+      return acc;
+    }, {});
+    
+    // Format users for frontend compatibility  
+    const formattedUsers = companyFilteredUsers.map(user => ({
       id: user._id,
       firstName: user.firstName,
       lastName: user.lastName,
       name: user.firstName, // Frontend compatibility
       lastname: user.lastName, // Frontend compatibility
+      fullName: user.fullName,
       email: user.email,
       phone: user.phone,
       role: user.role,
       image: user.image,
       language: user.language,
-      company: user.company,
       isActive: user.isActive,
       emailVerified: user.emailVerified,
-      createdAt: user.createdAt,
+      company: user.company,
+      totalVideoCalls: user.totalVideoCalls,
+      totalCallDuration: user.totalCallDuration,
+      averageRating: user.averageRating,
+      reviews: user.reviewCount, // Frontend compatibility
+      reviewCount: user.reviewCount,
       lastLoginAt: user.lastLoginAt,
-      reviews: user.reviewCount || 0, // Frontend compatibility
-      totalVideoCalls: user.totalVideoCalls || 0,
-      averageRating: user.averageRating || 0
+      lastActivityAt: user.lastActivityAt,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+      licenses: userLicensesMap[user._id.toString()] || [] // Add licenses for this user
     }));
     
     return NextResponse.json({
@@ -83,7 +165,21 @@ export async function POST(request: NextRequest) {
   await dbConnect();
   
   try {
-    const { firstName, lastName, email, password, phone, role, companyId, language, image } = await request.json();
+    const requestBody = await request.json();
+    const { 
+      firstName, 
+      lastName, 
+      email, 
+      password,
+      phone, 
+      role, 
+      companyId,
+      image,
+      language
+    } = requestBody;
+    
+    console.log('Create user request body:', requestBody);
+    console.log('Extracted companyId:', companyId);
     
     // Validate required fields
     if (!firstName || !lastName || !email) {
@@ -100,30 +196,46 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
     
-    // Check if user already exists
-    const existingUser = await User.findOne({ email: email.toLowerCase() });
-    if (existingUser) {
-      return NextResponse.json({ 
-        error: 'User with this email already exists' 
-      }, { status: 409 });
+    // Check if user already exists for the same company
+    if (companyId) {
+      const existingUser = await User.findOne({ email: email.toLowerCase(), company: companyId });
+      if (existingUser) {
+        return NextResponse.json({ 
+          error: 'User with this email already exists in this company' 
+        }, { status: 409 });
+      }
+    } else {
+      // If no company is provided, check if email exists globally to prevent duplicates without company
+      const existingUser = await User.findOne({ email: email.toLowerCase(), company: null });
+      if (existingUser) {
+        return NextResponse.json({ 
+          error: 'User with this email already exists without a company association' 
+        }, { status: 409 });
+      }
     }
     
     // Validate company if provided
     if (companyId) {
+      console.log('Validating company with ID:', companyId);
       const company = await Company.findById(companyId);
+      console.log('Found company:', company ? 'Yes' : 'No');
       if (!company) {
+        console.log('Company not found with ID:', companyId);
         return NextResponse.json({ 
-          error: 'Company not found' 
-        }, { status: 404 });
+          error: 'Invalid company ID' 
+        }, { status: 400 });
       }
+      console.log('Company validation successful:', company.name);
+    } else {
+      console.log('No companyId provided in request');
     }
     
-    // Generate temporary password if not provided
-    const tempPassword = password || `temp${Math.random().toString(36).slice(-8)}`;
-    const saltRounds = 12;
-    const hashedPassword = await bcrypt.hash(tempPassword, saltRounds);
+    // Generate password if not provided
+    const userPassword = password || Math.random().toString(36).slice(-8);
+    const hashedPassword = await bcrypt.hash(userPassword, 12);
     
-    // Create user
+        // Create user
+    console.log('Creating user with company assignment:', companyId || 'null');
     const user = new User({
       firstName,
       lastName,
@@ -132,63 +244,45 @@ export async function POST(request: NextRequest) {
       phone,
       role: role || 'user',
       company: companyId || null,
-      language: language || 'nb-NO',
       image: image || '/assets/elements/avatar.png',
-      emailVerified: false, // Force email verification for admin-created users
-      isActive: true
+      language: language || 'nb-NO',
+      isActive: true,
+      emailVerified: false // Will need email verification
     });
-    
+
     await user.save();
+    console.log('User created with ID:', user._id, 'and company:', user.company);
     
-    // Update company users array if company provided
+    // Add user to company if specified
     if (companyId) {
+      console.log('Adding user to company users array...');
       await Company.findByIdAndUpdate(companyId, {
-        $push: { users: user._id }
+        $addToSet: { users: user._id }
       });
+      console.log('User added to company users array');
     }
     
-    // Populate company data
-    await user.populate('company', 'name logo');
+    // Populate company data for response
+    await user.populate('company', 'name logo orgNumber');
     
-    // Send verification email for admin-created users
-    try {
-      const verificationCode = generateVerificationCode();
-      
-      const verification = new EmailVerification({
-        email: email.toLowerCase(),
-        verificationCode,
-        expiresAt: new Date(Date.now() + 15 * 60 * 1000) // 15 minutes
-      });
-      
-      await verification.save();
-      
-      await EmailService.sendVerificationEmail(
-        email,
-        firstName,
-        verificationCode
-      );
-    } catch (emailError) {
-      console.warn('Failed to send verification email to new user:', emailError);
-      // Don't fail user creation if email fails
-    }
-    
-    // Format response
     const userResponse = {
       id: user._id,
       firstName: user.firstName,
       lastName: user.lastName,
       name: user.firstName,
       lastname: user.lastName,
+      fullName: user.fullName,
       email: user.email,
       phone: user.phone,
       role: user.role,
       image: user.image,
       language: user.language,
-      company: user.company,
       isActive: user.isActive,
       emailVerified: user.emailVerified,
+      company: user.company,
       createdAt: user.createdAt,
-      reviews: 0
+      // Include temporary password in response (remove in production)
+      tempPassword: !password ? userPassword : undefined
     };
     
     return NextResponse.json(userResponse, { status: 201 });
@@ -197,7 +291,7 @@ export async function POST(request: NextRequest) {
     console.error('Create user error:', error);
     
     // Handle duplicate key errors
-    if (error instanceof Error && 'code' in error && (error as any).code === 11000) {
+    if ((error as any).code === 11000) {
       return NextResponse.json({ 
         error: 'Email already exists' 
       }, { status: 409 });
@@ -217,24 +311,21 @@ export async function PUT(request: NextRequest) {
     const userId = searchParams.get('id');
     
     if (!userId) {
-      return NextResponse.json({ 
-        error: 'User ID is required' 
-      }, { status: 400 });
+      return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
     }
     
-    const updates = await request.json();
+    const updateData = await request.json();
     
     // Remove fields that shouldn't be updated this way
-    delete updates.password; // Use separate endpoint for password changes
-    delete updates._id;
-    delete updates.id;
-    delete updates.createdAt;
-    delete updates.updatedAt;
+    delete updateData.password; // Use separate endpoint for password changes
+    delete updateData._id;
+    delete updateData.createdAt;
+    delete updateData.emailVerified; // Use separate endpoint for email verification
     
     // Validate email if being updated
-    if (updates.email) {
+    if (updateData.email) {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(updates.email)) {
+      if (!emailRegex.test(updateData.email)) {
         return NextResponse.json({ 
           error: 'Invalid email format' 
         }, { status: 400 });
@@ -242,58 +333,61 @@ export async function PUT(request: NextRequest) {
       
       // Check if email is already taken by another user
       const existingUser = await User.findOne({ 
-        email: updates.email.toLowerCase(),
+        email: updateData.email.toLowerCase(),
         _id: { $ne: userId }
       });
-      
       if (existingUser) {
         return NextResponse.json({ 
           error: 'Email already exists' 
         }, { status: 409 });
       }
       
-      updates.email = updates.email.toLowerCase();
+      updateData.email = updateData.email.toLowerCase();
     }
     
     // Validate company if being updated
-    if (updates.company) {
-      const company = await Company.findById(updates.company);
+    if (updateData.companyId) {
+      const company = await Company.findById(updateData.companyId);
       if (!company) {
         return NextResponse.json({ 
-          error: 'Company not found' 
-        }, { status: 404 });
+          error: 'Invalid company ID' 
+        }, { status: 400 });
       }
+      updateData.company = updateData.companyId;
+      delete updateData.companyId;
     }
     
+    // Update user
     const user = await User.findByIdAndUpdate(
       userId,
-      { ...updates, updatedAt: new Date() },
+      { ...updateData, updatedAt: new Date() },
       { new: true, runValidators: true }
-    ).populate('company', 'name logo').select('-password');
+    ).populate('company', 'name logo orgNumber');
     
     if (!user) {
-      return NextResponse.json({ 
-        error: 'User not found' 
-      }, { status: 404 });
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
     
-    // Format response
     const userResponse = {
       id: user._id,
       firstName: user.firstName,
       lastName: user.lastName,
       name: user.firstName,
       lastname: user.lastName,
+      fullName: user.fullName,
       email: user.email,
       phone: user.phone,
       role: user.role,
       image: user.image,
       language: user.language,
-      company: user.company,
       isActive: user.isActive,
       emailVerified: user.emailVerified,
+      company: user.company,
+      totalVideoCalls: user.totalVideoCalls,
+      averageRating: user.averageRating,
+      reviews: user.reviewCount,
       createdAt: user.createdAt,
-      reviews: user.reviewCount || 0
+      updatedAt: user.updatedAt
     };
     
     return NextResponse.json(userResponse);
@@ -314,37 +408,36 @@ export async function DELETE(request: NextRequest) {
     const userId = searchParams.get('id');
     
     if (!userId) {
-      return NextResponse.json({ 
-        error: 'User ID is required' 
-      }, { status: 400 });
+      return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
     }
     
+    // Find user first
     const user = await User.findById(userId);
     if (!user) {
-      return NextResponse.json({ 
-        error: 'User not found' 
-      }, { status: 404 });
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
     
-    // Soft delete by deactivating user
-    user.isActive = false;
-    await user.save();
+    // Soft delete by setting isActive to false
+    await User.findByIdAndUpdate(userId, {
+      isActive: false,
+      deletedAt: new Date()
+    });
     
-    // Unassign any licenses
-    await License.updateMany(
-      { user: userId },
-      { $unset: { user: 1 } }
-    );
-    
-    // Remove from company users array
+    // Remove user from company's users array
     if (user.company) {
       await Company.findByIdAndUpdate(user.company, {
         $pull: { users: userId }
       });
     }
     
+    // Unassign all licenses
+    await License.updateMany(
+      { user: userId },
+      { $unset: { user: 1 }, status: 'available' }
+    );
+    
     return NextResponse.json({ 
-      message: 'User deactivated successfully' 
+      message: 'User deleted successfully' 
     });
     
   } catch (error) {

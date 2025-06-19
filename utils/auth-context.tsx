@@ -23,7 +23,7 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   error: string | null;
-  login: (email: string, password: string) => Promise<boolean>;
+  login: (email: string, password: string, companyId?: string) => Promise<boolean | { multipleAccounts: boolean; companies: Array<{ id: string; name: string; logo: string; userId: string }> }>;
   register: (userData: any) => Promise<boolean>;
   logout: () => Promise<void>;
   forgotPassword: (email: string) => Promise<boolean>;
@@ -73,17 +73,25 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
   };
 
-  const login = async (email: string, password: string): Promise<boolean> => {
+  const login = async (email: string, password: string, companyId?: string): Promise<boolean | { multipleAccounts: boolean; companies: Array<{ id: string; name: string; logo: string; userId: string }> }> => {
     setLoading(true);
     setError(null);
     
     try {
-      const response = await authApi.login(email, password);
+      const response = await authApi.login(email, password, companyId);
       
       if (response.error) {
         setError(handleApiError(response));
         setLoading(false);
         return false;
+      }
+      
+      if (response.multipleAccounts) {
+        setLoading(false);
+        return {
+          multipleAccounts: response.multipleAccounts,
+          companies: response.companies || []
+        };
       }
       
       // Refresh user data after successful login

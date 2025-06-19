@@ -16,9 +16,10 @@ import DeleteUser from "@/components/user/DeleteUser";
 interface UserProps {
   user: UserType;
   onClose: () => void;
+  onUserUpdated?: () => void;
 }
 
-export default function User({ user, onClose }: UserProps) {
+export default function User({ user, onClose, onUserUpdated }: UserProps) {
   const [editUserModal, setEditUserModal] = useState(false);
   const [deleteUserModal, setDeleteUserModal] = useState(false);
 
@@ -149,15 +150,45 @@ export default function User({ user, onClose }: UserProps) {
           </div>
           <div className="p-6 border-b">
             <h3 className="font-heading mb-7 text-lg font-semibold">Lisens</h3>
-            <div className="flex flex-wrap -m-2 items-center">
-              <div className="w-auto p-2">
-                <LuFileKey2 />
+            {user.licenses && user.licenses.length > 0 ? (
+              <div className="space-y-3">
+                {user.licenses.map((license: any, index: number) => (
+                  <div key={license.id || license._id || index} className="flex flex-wrap -m-2 items-center">
+                    <div className="w-auto p-2">
+                      <LuFileKey2 />
+                    </div>
+                    <div>
+                      <p className="font-medium">
+                        {license.type === 'standard' ? 'Standard Lisens' : 
+                         license.type === 'premium' ? 'Premium Lisens' : 
+                         license.type === 'enterprise' ? 'Enterprise Lisens' : 
+                         license.type || 'Lisens'}
+                      </p>
+                      <p className="text-xs text-neutral-500">
+                        Status: {license.status === 'active' ? 'Aktiv' : 
+                                 license.status === 'inactive' ? 'Inaktiv' : 
+                                 license.status === 'expired' ? 'Utløpt' : 
+                                 license.status}
+                      </p>
+                      {license.validUntil && (
+                        <p className="text-xs text-neutral-400">
+                          Gyldig til: {new Date(license.validUntil).toLocaleDateString('no-NO')}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div>
-                <p>Lisens 1</p>
+            ) : (
+              <div className="flex flex-wrap -m-2 items-center">
+                <div className="w-auto p-2">
+                  <LuFileKey2 className="text-neutral-400" />
+                </div>
+                <div>
+                  <p className="text-neutral-500">Ingen lisens tildelt</p>
+                </div>
               </div>
-            </div>
-            <div className="chart" data-type="area-graph6" />
+            )}
           </div>
           {/*
           <div className="p-6">
@@ -333,28 +364,47 @@ export default function User({ user, onClose }: UserProps) {
           </div>
           */}
           <div className="w-auto p-6 border-b">
-            <div
+            <button
               onClick={handleEditUserModal}
-              className="cursor-pointer inline-flex flex-wrap gap-2 items-center px-2.5 py-2.5 text-sm font-medium text-white bg-tertiary hover:bg-tertiary/90 rounded-lg transition duration-300"
+              className="block cursor-pointer px-8 py-3.5 text-lg text-center text-white font-bold bg-primary hover:bg-secondary focus:ring-4 focus:ring-red-200 rounded-xl w-full transition duration-300"
             >
-              <LuPencil />
-              <p>Rediger bruker</p>
-            </div>
+              <div className="flex items-center justify-center gap-2">
+                <LuPencil />
+                <span>Rediger bruker</span>
+              </div>
+            </button>
           </div>
           {editUserModal && (
-            <EditUser onClose={() => setEditUserModal(false)} />
+            <EditUser 
+              onClose={() => setEditUserModal(false)} 
+              userId={user._id || String(user.id)}
+              onUserUpdated={() => {
+                setEditUserModal(false);
+                onUserUpdated?.(); // Call the parent's refresh function
+              }}
+            />
           )}
           <div className="w-auto p-6">
-            <div
+            <button
               onClick={handleDeleteUserModal}
-              className="cursor-pointer inline-flex flex-wrap gap-2 items-center px-2.5 py-2.5 text-sm font-medium text-white bg-primary hover:bg-secondary rounded-lg transition duration-300"
+              className="block cursor-pointer px-8 py-3.5 text-lg text-center text-white font-bold bg-red-500 hover:bg-red-600 focus:ring-4 focus:ring-red-200 rounded-xl w-full transition duration-300"
             >
-              <LuX />
-              <p>Slett bruker</p>
-            </div>
+              <div className="flex items-center justify-center gap-2">
+                <LuX />
+                <span>Slett bruker</span>
+              </div>
+            </button>
           </div>
           {deleteUserModal && (
-            <DeleteUser onClose={() => setDeleteUserModal(false)} />
+            <DeleteUser 
+              user={user}
+              onClose={() => setDeleteUserModal(false)} 
+              onSuccess={() => {
+                setDeleteUserModal(false);
+                onUserUpdated?.(); // Call the parent's refresh function
+                onClose(); // Close the user modal since user is deleted
+              }}
+            />
           )}
         </div>
       </section>

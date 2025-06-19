@@ -5,7 +5,7 @@ import './Company';
 const userSchema = new Schema({
   firstName: { type: String, required: true },
   lastName: { type: String, required: true },
-  email: { type: String, required: true, unique: true },
+  email: { type: String, required: true },
   password: { type: String, required: true },
   phone: { type: String },
   role: { type: String, enum: ['super_admin', 'admin', 'user', 'guest'], default: 'user' },
@@ -69,9 +69,10 @@ userSchema.virtual('reviews').get(function() {
 });
 
 // Indexes for analytics and queries
-userSchema.index({ company: 1, role: 1 });
+userSchema.index({ company: 1, role: 1, isActive: 1 });
 userSchema.index({ isActive: 1, lastActivityAt: -1 });
 userSchema.index({ totalVideoCalls: -1 });
+userSchema.index({ email: 1, company: 1 }, { unique: true });
 
 // Ensure virtuals are included in JSON
 userSchema.set('toJSON', { virtuals: true });

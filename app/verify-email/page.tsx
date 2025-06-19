@@ -94,6 +94,7 @@ export default function VerifyEmailPage() {
       const response = await fetch('/api/auth/verify-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', // Ensure cookies are included
         body: JSON.stringify({
           email: formData.email,
           verificationCode: formData.verificationCode
@@ -109,10 +110,8 @@ export default function VerifyEmailPage() {
 
       setSuccess(true);
       
-      // Redirect to dashboard after 2 seconds
-      setTimeout(() => {
-        router.push('/dashboard');
-      }, 2000);
+      // Redirect to dashboard immediately after successful verification
+      router.push('/dashboard');
 
     } catch (err) {
       setError('Network error. Please try again.');

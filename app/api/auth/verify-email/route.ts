@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '../../../../utils/dbConnect';
 import User from '../../../models/User';
 import EmailVerification from '../../../models/EmailVerification';
+import { sign } from 'jsonwebtoken';
+import Session from '../../../models/Session';
+
+const JWT_SECRET = process.env.JWT_SECRET || 'My-Secret-333';
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'My-Refresh-Secret-333';
 
 export async function POST(request: NextRequest) {
   await dbConnect();
@@ -79,11 +84,91 @@ export async function POST(request: NextRequest) {
       _id: { $ne: verification._id }
     });
     
-    return NextResponse.json({ 
+    // Automatically log in the user by issuing tokens
+    const accessToken = sign(
+      { 
+        userId: user._id, 
+        email: user.email, 
+        role: user.role,
+        companyId: user.company?._id || null
+      },
+      JWT_SECRET,
+      { expiresIn: '15m' }
+    );
+    const refreshToken = sign(
+      { userId: user._id },
+      JWT_REFRESH_SECRET,
+      { expiresIn: '7d' }
+    );
+    
+    // Create session with device/browser info
+    const uaString = request.headers.get('user-agent') || 'Unknown';
+    const clientIp = request.headers.get('x-forwarded-for') || 'Unknown';
+    
+    const session = new Session({
+      user: user._id,
+      company: user.company?._id || null,
+      token: accessToken,
+      refreshToken,
+      ipAddress: clientIp,
+      device: 'Unknown',
+      browser: 'Unknown',
+      os: 'Unknown',
+      location: 'Unknown',
+      lastActivity: new Date(),
+      loginMethod: 'password',
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes for access token
+      refreshExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days for refresh token
+    });
+    await session.save();
+    
+    // Set cookies
+    const response = NextResponse.json({ 
       message: 'Email verified successfully',
-      verified: true 
+      verified: true,
+      user: {
+        id: user._id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+        company: user.company || null
+      },
+      expiresIn: 15 * 60 * 1000, // 15 minutes in milliseconds
+      sessionId: session._id
     });
     
+    response.cookies.set({
+      name: 'auth-token',
+      value: accessToken,
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 15 * 60, // 15 minutes
+      path: '/'
+    });
+    response.cookies.set({
+      name: 'refresh-token',
+      value: refreshToken,
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60, // 7 days
+      path: '/'
+    });
+    response.cookies.set({
+      name: 'session-id',
+      value: session._id.toString(),
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60, // 7 days
+      path: '/'
+    });
+    
+    console.log('Email verification successful. User logged in with cookies set.');
+    
+    return response;
   } catch (error) {
     console.error('Verify email error:', error);
     return NextResponse.json({ 

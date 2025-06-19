@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   LuBotMessageSquare,
   LuCalendarFold,
@@ -94,33 +94,6 @@ const addons = [
     included: false,
   },
 ];
-interface LicenseItem {
-  id: number;
-  label: string;
-  assignedTo: string;
-  available: boolean;
-}
-const licenses: LicenseItem[] = [
-  {
-    id: 1,
-    label: "Lisens 1",
-    available: false,
-    assignedTo: "Tildelt: Ola Nordmann",
-  },
-  {
-    id: 2,
-    label: "Lisens 2",
-    available: false,
-    assignedTo: "Tildelt: Kari Nordmann",
-  },
-  {
-    id: 3,
-    label: "Lisens 3",
-    available: false,
-    assignedTo: "Tildelt: Hennig Olsen",
-  },
-  { id: 4, label: "Lisens 4", available: true, assignedTo: "" },
-];
 
 export default function Settings() {
   const { user: currentUser, loading: authLoading } = useAuth();
@@ -138,6 +111,8 @@ export default function Settings() {
   const [userToDelete, setUserToDelete] = useState<any | null>(null);
   const [addLicenseModal, setAddLicenseModal] = useState(false);
   const [editLicenseModal, setEditLicenseModal] = useState(false);
+  const [selectedLicense, setSelectedLicense] = useState<any | null>(null);
+  const [deleteLicenseModal, setDeleteLicenseModal] = useState(false);
   
   // Company users state
   const [companyUsers, setCompanyUsers] = useState<any[]>([]);
@@ -150,6 +125,7 @@ export default function Settings() {
   // License data state
   const [licenseData, setLicenseData] = useState<any[]>([]);
   const [loadingLicenses, setLoadingLicenses] = useState(false);
+  const [savingLicense, setSavingLicense] = useState(false);
 
   const [companyForm, setCompanyForm] = useState<any>(null);
   const [companyDirty, setCompanyDirty] = useState(false);
@@ -160,7 +136,7 @@ export default function Settings() {
   const [savingUser, setSavingUser] = useState(false);
 
   // Fetch company data
-  const fetchCompanyData = async () => {
+  const fetchCompanyData = useCallback(async () => {
     console.log('fetchCompanyData called, currentUser:', currentUser);
     setLoadingCompany(true);
     
@@ -194,51 +170,46 @@ export default function Settings() {
     } finally {
       setLoadingCompany(false);
     }
-  };
+  }, [currentUser?.company?.id, (currentUser?.company as any)?._id]);
 
   // Fetch company users
-  const fetchCompanyUsers = async () => {
+  const fetchCompanyUsers = useCallback(async () => {
     console.log('fetchCompanyUsers called, currentUser:', currentUser);
     setLoadingUsers(true);
     
-    if (!currentUser?.company?.id) {
+    // Get company ID from current user
+    const companyId = currentUser?.company?.id || (currentUser?.company as any)?._id;
+    
+    if (!companyId) {
       console.log('No company ID found for current user:', currentUser);
       console.log('Company object:', currentUser?.company);
-      console.log('Attempting to fetch all users (debug mode)...');
-      
-      // Try fetching all users to see if the API works
-      try {
-        const response = await userApi.getUsers();
-        console.log('Fetched all users response (debug):', response);
-        // Filter out admin/super_admin users from the list
-        const filteredUsers = (response.data || []).filter((user: any) => 
-          user.role !== 'admin' && user.role !== 'super_admin'
-        );
-        console.log('Filtered users (excluding admins):', filteredUsers);
-        setCompanyUsers(filteredUsers);
-      } catch (error) {
-        console.error('Error fetching all users (debug):', error);
-        setCompanyUsers([]);
-      } finally {
-        setLoadingUsers(false);
-      }
+      console.log('Cannot fetch users without company context');
+      setCompanyUsers([]);
+      setLoadingUsers(false);
       return;
     }
     
-    console.log('Fetching users for company:', currentUser.company.id);
+    console.log('Fetching users for company:', companyId);
     
     try {
       const response = await userApi.getUsers({
-        company: currentUser.company.id,
+        company: companyId,
         isActive: true
       });
       
       console.log('Fetched users response:', response);
-      // Filter out admin/super_admin users from the list
-      const filteredUsers = (response.data || []).filter((user: any) => 
-        user.role !== 'admin' && user.role !== 'super_admin'
-      );
-      console.log('Filtered users (excluding admins):', filteredUsers);
+      
+      // Filter users to only include those with a company AND exclude admin/super_admin roles
+      const filteredUsers = (response.data || []).filter((user: any) => {
+        const hasCompany = user.company && (user.company.id === companyId || user.company._id === companyId || user.company === companyId);
+        const isNotAdmin = user.role !== 'admin' && user.role !== 'super_admin';
+        
+        console.log(`User ${user.email}: hasCompany=${hasCompany}, isNotAdmin=${isNotAdmin}, userCompany=`, user.company);
+        
+        return hasCompany && isNotAdmin;
+      });
+      
+      console.log('Filtered users (company members only, excluding admins):', filteredUsers);
       setCompanyUsers(filteredUsers);
     } catch (error) {
       console.error('Error fetching company users:', error);
@@ -246,22 +217,25 @@ export default function Settings() {
     } finally {
       setLoadingUsers(false);
     }
-  };
+  }, [currentUser?.company?.id, (currentUser?.company as any)?._id]);
 
   // Fetch licenses
-  const fetchLicenses = async () => {
+  const fetchLicenses = useCallback(async () => {
     console.log('fetchLicenses called, currentUser:', currentUser);
     setLoadingLicenses(true);
     
-    if (!currentUser?.company?.id) {
+    const companyId = currentUser?.company?.id || (currentUser?.company as any)?._id;
+    if (!companyId) {
       console.log('No company ID found for licenses fetch');
+      console.log('Company object:', currentUser?.company);
       setLoadingLicenses(false);
       return;
     }
     
     try {
+      console.log('Fetching licenses for company:', companyId);
       const response = await licenseApi.getLicenses({
-        company: currentUser.company.id
+        company: companyId
       });
       console.log('Fetched licenses response:', response);
       setLicenseData(response.data || []);
@@ -271,11 +245,11 @@ export default function Settings() {
     } finally {
       setLoadingLicenses(false);
     }
-  };
+  }, [currentUser?.company?.id, (currentUser?.company as any)?._id]);
 
-  // Load data when component mounts and when switching tabs
+  // Load data when component mounts and when switching tabs or user changes
   useEffect(() => {
-    console.log('useEffect triggered - authLoading:', authLoading, 'currentUser:', !!currentUser, 'settingspage:', settingspage);
+    console.log('Data fetch useEffect triggered - authLoading:', authLoading, 'currentUser:', !!currentUser, 'settingspage:', settingspage);
     
     // Don't run if still loading auth or no user
     if (authLoading || !currentUser) {
@@ -283,7 +257,7 @@ export default function Settings() {
       return;
     }
 
-    console.log('Settings page changed to:', settingspage);
+    console.log('Loading data for settings page:', settingspage);
     
     switch (settingspage) {
       case 1: // General tab
@@ -301,36 +275,12 @@ export default function Settings() {
       case 4: // Licenses and payment tab
         console.log('Loading Licenses tab data');
         fetchLicenses();
+        fetchCompanyUsers(); // Also load users for license assignment
         break;
       default:
         break;
     }
-  }, [settingspage, currentUser?.company?.id, (currentUser?.company as any)?._id, currentUser, authLoading]);
-
-  // Initialize data when component first loads
-  useEffect(() => {
-    console.log('Initialization useEffect - authLoading:', authLoading, 'currentUser:', !!currentUser);
-    
-    if (!authLoading && currentUser) {
-      console.log('Initializing Settings component with settingspage:', settingspage);
-      
-      // Load initial data based on current tab
-      switch (settingspage) {
-        case 1:
-          console.log('Initializing General tab');
-          fetchCompanyData();
-          break;
-        case 2:
-          console.log('Initializing Users tab');
-          fetchCompanyUsers();
-          break;
-        case 4:
-          console.log('Initializing Licenses tab');
-          fetchLicenses();
-          break;
-      }
-    }
-  }, [authLoading, currentUser]); // Only run when auth state changes
+  }, [settingspage, authLoading, fetchCompanyData, fetchCompanyUsers, fetchLicenses]);
 
   // Initialize form data when companyData or currentUser changes
   useEffect(() => {
@@ -430,12 +380,114 @@ export default function Settings() {
     setUserToDelete(null);
   };
 
-  const handleAddLicenseModal = () => {
+    const handleAddLicenseModal = () => {
     setAddLicenseModal(true);
   };
-  
-  const handleEditLicenseModal = () => {
+
+  const handleEditLicenseModal = (license?: any) => {
+    setSelectedLicense(license || null);
     setEditLicenseModal(true);
+  };
+
+  const handleDeleteLicenseModal = (license: any) => {
+    setSelectedLicense(license);
+    setDeleteLicenseModal(true);
+  };
+
+  const handleCreateLicense = async (licenseData: any) => {
+    setSavingLicense(true);
+    try {
+      // Don't pass companyId - it will be extracted from the auth token
+      const response = await licenseApi.createLicense(licenseData);
+      
+      if (response && !response.error) {
+        await fetchLicenses(); // Refresh the list
+        setAddLicenseModal(false);
+        console.log('License created successfully');
+      } else {
+        console.error('Failed to create license:', response.error);
+      }
+    } catch (error) {
+      console.error('Error creating license:', error);
+    } finally {
+      setSavingLicense(false);
+    }
+  };
+
+  const handleUpdateLicense = async (licenseId: string, licenseData: any) => {
+    setSavingLicense(true);
+    try {
+      const response = await licenseApi.updateLicense(licenseId, licenseData);
+      
+      if (response && !response.error) {
+        await fetchLicenses(); // Refresh the list
+        setEditLicenseModal(false);
+        setSelectedLicense(null);
+        console.log('License updated successfully');
+      } else {
+        console.error('Failed to update license:', response.error);
+      }
+    } catch (error) {
+      console.error('Error updating license:', error);
+    } finally {
+      setSavingLicense(false);
+    }
+  };
+
+  const handleDeleteLicense = async (licenseId: string) => {
+    setSavingLicense(true);
+    try {
+      const response = await licenseApi.deleteLicense(licenseId);
+      
+      if (response && !response.error) {
+        await fetchLicenses(); // Refresh the list
+        setDeleteLicenseModal(false);
+        setSelectedLicense(null);
+        console.log('License deleted successfully');
+      } else {
+        console.error('Failed to delete license:', response.error);
+      }
+    } catch (error) {
+      console.error('Error deleting license:', error);
+    } finally {
+      setSavingLicense(false);
+    }
+  };
+
+  const handleAssignLicense = async (licenseId: string, userId: string) => {
+    setSavingLicense(true);
+    try {
+      const response = await licenseApi.assignLicense(licenseId, userId);
+      
+      if (response && !response.error) {
+        await fetchLicenses(); // Refresh the list
+        console.log('License assigned successfully');
+      } else {
+        console.error('Failed to assign license:', response.error);
+      }
+    } catch (error) {
+      console.error('Error assigning license:', error);
+    } finally {
+      setSavingLicense(false);
+    }
+  };
+
+  const handleUnassignLicense = async (licenseId: string) => {
+    setSavingLicense(true);
+    try {
+      const response = await licenseApi.unassignLicense(licenseId);
+      
+      if (response && !response.error) {
+        await fetchLicenses(); // Refresh the list
+        console.log('License unassigned successfully');
+      } else {
+        console.error('Failed to unassign license:', response.error);
+      }
+    } catch (error) {
+      console.error('Error unassigning license:', error);
+    } finally {
+      setSavingLicense(false);
+    }
   };
 
   const handleSaveAll = async () => {
@@ -456,12 +508,7 @@ export default function Settings() {
               <div
                 onClick={() => {
                   console.log('General tab clicked');
-                  console.log('currentUser:', currentUser);
-                  console.log('currentUser?.company?.id:', currentUser?.company?.id);
                   setSettingspage(1);
-                  // Always fetch company data when tab is clicked (force update)
-                  console.log('Force calling fetchCompanyData from tab click');
-                  fetchCompanyData();
                 }}
                 className={`px-8 py-3.5 cursor-pointer rounded-xl ${
                   settingspage === 1 && "shadow-sm shadow-black/25 bg-white"
@@ -474,12 +521,7 @@ export default function Settings() {
               <div
                 onClick={() => {
                   console.log('Users tab clicked');
-                  console.log('currentUser:', currentUser);
-                  console.log('currentUser?.company?.id:', currentUser?.company?.id);
                   setSettingspage(2);
-                  // Always fetch users when tab is clicked (force update)
-                  console.log('Force calling fetchCompanyUsers from tab click');
-                  fetchCompanyUsers();
                 }}
                 className={`px-8 py-3.5 cursor-pointer rounded-xl ${
                   settingspage === 2 && "shadow-sm shadow-black/25 bg-white"
@@ -506,7 +548,6 @@ export default function Settings() {
                 onClick={() => {
                   console.log('Licenses tab clicked');
                   setSettingspage(4);
-                  fetchLicenses();
                 }}
                 className={`px-8 py-3.5 cursor-pointer rounded-xl ${
                   settingspage === 4 && "shadow-sm shadow-black/25 bg-white"
@@ -1105,6 +1146,7 @@ export default function Settings() {
                   <User
                     user={selectedUser}
                     onClose={() => setSelectedUser(null)}
+                    onUserUpdated={fetchCompanyUsers}
                   />
                 )}
                 {createUserModal && (
@@ -1416,7 +1458,11 @@ export default function Settings() {
                 </div>
               </div>
               {addLicenseModal && (
-                <AddLicense onClose={() => setAddLicenseModal(false)} />
+                <AddLicense 
+                  onClose={() => setAddLicenseModal(false)}
+                  onSave={handleCreateLicense}
+                  saving={savingLicense}
+                />
               )}
             </div>
             <hr />
@@ -1424,59 +1470,90 @@ export default function Settings() {
 
           <section className="py-4 overflow-hidden">
             <div className="container px-4 mx-auto">
-              {licenses.map((license) => (
-                <div
-                  key={license.id}
-                  className="bg-neutral-50 border border-neutral-100 rounded-xl mb-4"
-                >
-                  <div className="px-5 py-1">
-                    <div className="w-full overflow-x-auto">
-                      <table className="w-full min-w-max">
-                        <tbody>
-                          <tr>
-                            <td className="py-3 pr-4">
-                              <div className="flex flex-wrap items-center -m-2.5">
-                                <div className="w-auto p-2.5">
-                                  <LuFileKey2 />
-                                </div>
-                                <div className="w-auto p-2.5">
-                                  <span className="block mb-1 text-sm font-semibold">
-                                    {license.label}
-                                  </span>
-                                  {license.available === false ? (
-                                    <span className="block text-xs text-neutral-500">
-                                      {license.assignedTo}
+              {loadingLicenses ? (
+                <div className="text-center py-8">
+                  <p className="text-neutral-500">Laster lisenser...</p>
+                </div>
+              ) : licenseData.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-neutral-500">Ingen lisenser funnet. Klikk "Legg til" for å opprette din første lisens.</p>
+                </div>
+              ) : (
+                licenseData.map((license) => (
+                  <div
+                    key={license.id || license._id}
+                    className="bg-neutral-50 border border-neutral-100 rounded-xl mb-4"
+                  >
+                    <div className="px-5 py-1">
+                      <div className="w-full overflow-x-auto">
+                        <table className="w-full min-w-max">
+                          <tbody>
+                            <tr>
+                              <td className="py-3 pr-4">
+                                <div className="flex flex-wrap items-center -m-2.5">
+                                  <div className="w-auto p-2.5">
+                                    <LuFileKey2 />
+                                  </div>
+                                  <div className="w-auto p-2.5">
+                                    <span className="block mb-1 text-sm font-semibold">
+                                      {license.type === 'standard' ? 'Standard Lisens' : 
+                                       license.type === 'premium' ? 'Premium Lisens' : 
+                                       license.type === 'enterprise' ? 'Enterprise Lisens' : 
+                                       license.type || 'Lisens'}
                                     </span>
-                                  ) : (
-                                    <span className="block text-xs text-neutral-500">
-                                      Ledig
+                                    {license.user ? (
+                                      <span className="block text-xs text-neutral-500">
+                                        Tildelt: {license.user.firstName} {license.user.lastName}
+                                      </span>
+                                    ) : (
+                                      <span className="block text-xs text-green-600">
+                                        Ledig
+                                      </span>
+                                    )}
+                                    <span className="block text-xs text-neutral-400">
+                                      Status: {license.status === 'active' ? 'Aktiv' : 
+                                               license.status === 'inactive' ? 'Inaktiv' : 
+                                               license.status === 'expired' ? 'Utløpt' : 
+                                               license.status}
                                     </span>
-                                  )}
-                                </div>
-                              </div>
-                            </td>
-                            <td className="py-3 pl-4">
-                              <div className="flex items-center justify-end">
-                                <div
-                                  onClick={handleEditLicenseModal}
-                                  className="w-auto p-2"
-                                >
-                                  <div className="cursor-pointer inline-flex flex-wrap items-center px-2.5 py-2.5 text-sm font-medium text-white bg-primary hover:bg-secondary rounded-lg transition duration-300">
-                                    <LuPencil />
                                   </div>
                                 </div>
-                              </div>
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
+                              </td>
+                              <td className="py-3 pl-4">
+                                <div className="flex items-center justify-end space-x-2">
+                                  <div
+                                    onClick={() => handleEditLicenseModal(license)}
+                                    className="w-auto p-2"
+                                  >
+                                    <div className="cursor-pointer inline-flex flex-wrap items-center px-2.5 py-2.5 text-sm font-medium text-white bg-primary hover:bg-secondary rounded-lg transition duration-300">
+                                      <LuPencil />
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
             {editLicenseModal && (
-              <EditLicense onClose={() => setEditLicenseModal(false)} />
+              <EditLicense 
+                license={selectedLicense}
+                users={companyUsers}
+                onClose={() => {
+                  setEditLicenseModal(false);
+                  setSelectedLicense(null);
+                }}
+                onSave={handleUpdateLicense}
+                onDelete={handleDeleteLicense}
+                onAssign={handleAssignLicense}
+                onUnassign={handleUnassignLicense}
+                saving={savingLicense}
+              />
             )}
           </section>
 
@@ -1495,11 +1572,11 @@ export default function Settings() {
                   <li className="flex flex-wrap items-center justify-between mb-4">
                     <div className="flex flex-wrap items-center mr-4">
                       <div className="mr-2 w-3.5 h-3.5 rounded-full bg-primary" />
-                      <span className="font-medium">Lisenser (4)</span>
+                      <span className="font-medium">Lisenser ({licenseData.length})</span>
                     </div>
                     <div className="flex flex-row gap-2 items-center">
                       <p>
-                        <span className="text-xs text-gray-500">4x</span> 990,-
+                        <span className="text-xs text-gray-500">{licenseData.length}x</span> 990,-
                       </p>
                       <svg
                         width={20}

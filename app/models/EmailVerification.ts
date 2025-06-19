@@ -31,9 +31,6 @@ const EmailVerificationSchema = new mongoose.Schema({
   }
 });
 
-// Index for automatic cleanup of expired documents
-EmailVerificationSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-
 // Compound index for efficient queries
 EmailVerificationSchema.index({ email: 1, isUsed: 1 });
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '../../../../utils/dbConnect';
-import User from '../../../models/User';
-import License from '../../../models/License';
+import { User, Company, License } from '../../../models';
+import bcrypt from 'bcryptjs';
 
 export async function GET(
   request: NextRequest,
@@ -10,47 +10,48 @@ export async function GET(
   await dbConnect();
   
   try {
-    const user = await User.findById(params.id)
+    const userId = params.id;
+    
+    const user = await User.findById(userId)
       .populate('company', 'name logo orgNumber')
       .select('-password');
     
     if (!user) {
-      return NextResponse.json({ 
-        error: 'User not found' 
-      }, { status: 404 });
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
     
     // Get user's licenses
-    const licenses = await License.find({ user: params.id })
-      .populate('company', 'name')
-      .select('type status validFrom validUntil features');
+    const licenses = await License.find({ user: userId })
+      .populate('company', 'name logo');
     
-    // Format response for frontend compatibility
     const userResponse = {
       id: user._id,
       firstName: user.firstName,
       lastName: user.lastName,
-      name: user.firstName, // Frontend compatibility
-      lastname: user.lastName, // Frontend compatibility
+      name: user.firstName,
+      lastname: user.lastName,
+      fullName: user.fullName,
       email: user.email,
       phone: user.phone,
       role: user.role,
       image: user.image,
       language: user.language,
       timezone: user.timezone,
-      company: user.company,
       isActive: user.isActive,
       emailVerified: user.emailVerified,
-      twoFactorEnabled: user.twoFactorEnabled,
-      notifications: user.notifications,
-      createdAt: user.createdAt,
+      company: user.company,
+      licenses: licenses,
+      totalVideoCalls: user.totalVideoCalls,
+      totalCallDuration: user.totalCallDuration,
+      averageRating: user.averageRating,
+      reviews: user.reviewCount,
+      reviewCount: user.reviewCount,
       lastLoginAt: user.lastLoginAt,
       lastActivityAt: user.lastActivityAt,
-      reviews: user.reviewCount || 0, // Frontend compatibility
-      totalVideoCalls: user.totalVideoCalls || 0,
-      totalCallDuration: user.totalCallDuration || 0,
-      averageRating: user.averageRating || 0,
-      licenses: licenses
+      loginCount: user.loginCount,
+      notifications: user.notifications,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt
     };
     
     return NextResponse.json(userResponse);
@@ -70,19 +71,19 @@ export async function PUT(
   await dbConnect();
   
   try {
-    const updates = await request.json();
+    const userId = params.id;
+    const updateData = await request.json();
     
     // Remove fields that shouldn't be updated this way
-    delete updates.password; // Use separate endpoint for password changes
-    delete updates._id;
-    delete updates.id;
-    delete updates.createdAt;
-    delete updates.updatedAt;
+    delete updateData.password; // Use separate endpoint for password changes
+    delete updateData._id;
+    delete updateData.createdAt;
+    delete updateData.emailVerified; // Use separate endpoint for email verification
     
     // Validate email if being updated
-    if (updates.email) {
+    if (updateData.email) {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(updates.email)) {
+      if (!emailRegex.test(updateData.email)) {
         return NextResponse.json({ 
           error: 'Invalid email format' 
         }, { status: 400 });
@@ -90,48 +91,82 @@ export async function PUT(
       
       // Check if email is already taken by another user
       const existingUser = await User.findOne({ 
-        email: updates.email.toLowerCase(),
-        _id: { $ne: params.id }
+        email: updateData.email.toLowerCase(),
+        _id: { $ne: userId }
       });
-      
       if (existingUser) {
         return NextResponse.json({ 
           error: 'Email already exists' 
         }, { status: 409 });
       }
       
-      updates.email = updates.email.toLowerCase();
+      updateData.email = updateData.email.toLowerCase();
     }
     
+    // Validate company if being updated
+    if (updateData.companyId) {
+      const company = await Company.findById(updateData.companyId);
+      if (!company) {
+        return NextResponse.json({ 
+          error: 'Invalid company ID' 
+        }, { status: 400 });
+      }
+      
+      // Get current user to check if company is changing
+      const currentUser = await User.findById(userId);
+      const oldCompanyId = currentUser?.company?.toString();
+      
+      updateData.company = updateData.companyId;
+      delete updateData.companyId;
+      
+      // Update company relationships if company changed
+      if (oldCompanyId !== updateData.company) {
+        // Remove from old company
+        if (oldCompanyId) {
+          await Company.findByIdAndUpdate(oldCompanyId, {
+            $pull: { users: userId }
+          });
+        }
+        
+        // Add to new company
+        await Company.findByIdAndUpdate(updateData.company, {
+          $addToSet: { users: userId }
+        });
+      }
+    }
+    
+    // Update user
     const user = await User.findByIdAndUpdate(
-      params.id,
-      { ...updates, updatedAt: new Date() },
+      userId,
+      { ...updateData, updatedAt: new Date() },
       { new: true, runValidators: true }
-    ).populate('company', 'name logo').select('-password');
+    ).populate('company', 'name logo orgNumber');
     
     if (!user) {
-      return NextResponse.json({ 
-        error: 'User not found' 
-      }, { status: 404 });
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
     
-    // Format response
     const userResponse = {
       id: user._id,
       firstName: user.firstName,
       lastName: user.lastName,
       name: user.firstName,
       lastname: user.lastName,
+      fullName: user.fullName,
       email: user.email,
       phone: user.phone,
       role: user.role,
       image: user.image,
       language: user.language,
-      company: user.company,
+      timezone: user.timezone,
       isActive: user.isActive,
       emailVerified: user.emailVerified,
+      company: user.company,
+      totalVideoCalls: user.totalVideoCalls,
+      averageRating: user.averageRating,
+      reviews: user.reviewCount,
       createdAt: user.createdAt,
-      reviews: user.reviewCount || 0
+      updatedAt: user.updatedAt
     };
     
     return NextResponse.json(userResponse);
@@ -151,25 +186,46 @@ export async function DELETE(
   await dbConnect();
   
   try {
-    const user = await User.findById(params.id);
+    const userId = params.id;
+    
+    // Find user first
+    const user = await User.findById(userId);
     if (!user) {
-      return NextResponse.json({ 
-        error: 'User not found' 
-      }, { status: 404 });
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
     
-    // Soft delete by deactivating user
-    user.isActive = false;
-    await user.save();
+    // Check if user is super admin (prevent deletion)
+    if (user.role === 'super_admin') {
+      return NextResponse.json({ 
+        error: 'Cannot delete super admin user' 
+      }, { status: 403 });
+    }
     
-    // Unassign any licenses
+    // Soft delete by setting isActive to false
+    await User.findByIdAndUpdate(userId, {
+      isActive: false,
+      deletedAt: new Date()
+    });
+    
+    // Remove user from company's users array
+    if (user.company) {
+      await Company.findByIdAndUpdate(user.company, {
+        $pull: { users: userId }
+      });
+    }
+    
+    // Unassign all licenses and mark them as available
     await License.updateMany(
-      { user: params.id },
-      { $unset: { user: 1 } }
+      { user: userId },
+      { 
+        $unset: { user: 1 },
+        status: 'available',
+        unassignedAt: new Date()
+      }
     );
     
     return NextResponse.json({ 
-      message: 'User deactivated successfully' 
+      message: 'User deleted successfully' 
     });
     
   } catch (error) {

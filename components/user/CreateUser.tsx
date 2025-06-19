@@ -78,10 +78,18 @@ export default function CreateUser({ onClose, onSuccess }: CreateUserProps) {
     setError(null);
 
     try {
-      const response = await userApi.createUser({
+      console.log('Creating user with company ID:', user?.company?.id);
+      console.log('Full company object:', user?.company);
+      console.log('Full form data:', formData);
+      
+      const payload = {
         ...formData,
-        companyId: user?.company?.id
-      });
+        companyId: user?.company?.id || (user?.company as any)?._id
+      };
+      
+      console.log('Final payload:', payload);
+      
+      const response = await userApi.createUser(payload);
 
       if (response.error) {
         setError(handleApiError(response));

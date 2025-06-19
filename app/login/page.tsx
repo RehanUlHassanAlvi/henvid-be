@@ -16,6 +16,9 @@ export default function Loginpage() {
   });
   const [resendingVerification, setResendingVerification] = useState(false);
   const [showResendButton, setShowResendButton] = useState(false);
+  const [companySelection, setCompanySelection] = useState<Array<{ id: string; name: string; logo: string; userId: string }>>([]);
+  const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
+  const [loginStep, setLoginStep] = useState<'credentials' | 'companySelection'>('credentials');
 
   useEffect(() => {
     if (shouldRedirect) {
@@ -33,6 +36,12 @@ export default function Loginpage() {
     if (error) clearError();
   };
 
+  const handleCompanySelect = (companyId: string) => {
+    setSelectedCompany(companyId);
+    // Proceed with login for the selected company
+    loginWithCompany(companyId);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -40,11 +49,31 @@ export default function Loginpage() {
       return;
     }
 
-    const success = await login(formData.email, formData.password);
-    if (success) {
+    const response = await login(formData.email, formData.password);
+    if (typeof response === 'object' && response.multipleAccounts) {
+      setCompanySelection(response.companies);
+      setLoginStep('companySelection');
+    } else if (response === true) {
       router.push('/dashboard');
     } else if (error && error.includes('Email not verified')) {
       setShowResendButton(true);
+    }
+  };
+
+  const loginWithCompany = async (companyId: string) => {
+    // Use the login function from useAuth with companyId
+    const response = await login(formData.email, formData.password, companyId);
+    if (response === true) {
+      router.push('/dashboard');
+    } else if (typeof response === 'object' && response.multipleAccounts) {
+      // This case shouldn't happen, but handle it just in case
+      setCompanySelection(response.companies);
+      setLoginStep('companySelection');
+    } else {
+      // Handle error case
+      if (error) {
+        setLoginStep('credentials');
+      }
     }
   };
 
@@ -88,7 +117,7 @@ export default function Loginpage() {
                   Velkommen
                 </h2>
                 <p className="text-gray-500 font-bold">
-                  Fyll ut dine detaljer for å logge inn
+                  {loginStep === 'credentials' ? 'Fyll ut dine detaljer for å logge inn' : 'Velg selskapet du vil logge inn med'}
                 </p>
                 {error && (
                   <div className="mt-4 p-3 bg-red-100 border border-red-300 text-red-700 rounded-lg">
@@ -115,84 +144,111 @@ export default function Loginpage() {
                   </div>
                 )}
               </div>
-              <form onSubmit={handleSubmit}>
-                <div className="flex flex-wrap -m-3">
-                  <div className="w-full p-3">
-                    <label
-                      className="block mb-2 text-sm text-gray-500 font-bold"
-                      htmlFor="login-email"
-                    >
-                      Epostadresse
-                    </label>
-                    <input
-                      className="appearance-none px-6 py-3.5 w-full text-lg text-gray-500 font-bold bg-white placeholder-gray-500 outline-none border border-gray-200 focus:ring-4 focus:ring-red-200 rounded-xl"
-                      id="login-email"
-                      name="email"
-                      type="email"
-                      value={formData.email}
-                      onChange={handleInputChange}
-                      placeholder="din@epost.no"
-                      required
-                    />
-                  </div>
-                  <div className="w-full p-3">
-                    <label
-                      className="block mb-2 text-sm text-gray-500 font-bold"
-                      htmlFor="login-password"
-                    >
-                      Passord
-                    </label>
-                    <div className="border border-gray-200 overflow-hidden rounded-xl focus-within:ring-4 focus-within:ring-red-200">
-                      <div className="flex flex-wrap">
-                        <div className="flex-1">
-                          <input
-                            className="appearance-none px-6 py-3.5 w-full text-lg text-gray-500 font-bold bg-white placeholder-gray-500 outline-none"
-                            id="login-password"
-                            name="password"
-                            type="password"
-                            value={formData.password}
-                            onChange={handleInputChange}
-                            placeholder="Ditt passord"
-                            required
-                          />
-                        </div>
-                        <div className="w-auto">
-                          <Link
-                            className="flex items-center pr-4 text-primary hover:text-secondary h-full bg-white font-bold"
-                            href="/forgot-password"
-                          >
-                            Glemt passord?
-                          </Link>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="w-full p-3">
-                    <div className="flex flex-wrap md:justify-end -m-2">
-                      <div className="w-full p-2">
-                        <button
-                          type="submit"
-                          disabled={loading || !formData.email || !formData.password}
-                          className="block px-8 py-3.5 text-lg text-center text-white font-bold bg-primary hover:bg-secondary focus:ring-4 focus:ring-red-200 rounded-xl w-full disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {loading ? 'Logger inn...' : 'Logg inn'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="w-full p-3 hidden">
-                    <p className="text-gray-600 text-center font-bold">
-                      <span>Har du ikke konto?</span>
-                      <a
-                        className="text-primary hover:text-secondary font-bold"
-                        href="#"
+              {loginStep === 'credentials' ? (
+                <form onSubmit={handleSubmit}>
+                  <div className="flex flex-wrap -m-3">
+                    <div className="w-full p-3">
+                      <label
+                        className="block mb-2 text-sm text-gray-500 font-bold"
+                        htmlFor="login-email"
                       >
-                        Registrer ditt firma her
-                      </a>
-                    </p>
+                        Epostadresse
+                      </label>
+                      <input
+                        className="appearance-none px-6 py-3.5 w-full text-lg text-gray-500 font-bold bg-white placeholder-gray-500 outline-none border border-gray-200 focus:ring-4 focus:ring-red-200 rounded-xl"
+                        id="login-email"
+                        name="email"
+                        type="email"
+                        value={formData.email}
+                        onChange={handleInputChange}
+                        placeholder="din@epost.no"
+                        required
+                      />
+                    </div>
+                    <div className="w-full p-3">
+                      <label
+                        className="block mb-2 text-sm text-gray-500 font-bold"
+                        htmlFor="login-password"
+                      >
+                        Passord
+                      </label>
+                      <div className="border border-gray-200 overflow-hidden rounded-xl focus-within:ring-4 focus-within:ring-red-200">
+                        <div className="flex flex-wrap">
+                          <div className="flex-1">
+                            <input
+                              className="appearance-none px-6 py-3.5 w-full text-lg text-gray-500 font-bold bg-white placeholder-gray-500 outline-none"
+                              id="login-password"
+                              name="password"
+                              type="password"
+                              value={formData.password}
+                              onChange={handleInputChange}
+                              placeholder="Ditt passord"
+                              required
+                            />
+                          </div>
+                          <div className="w-auto">
+                            <Link
+                              className="flex items-center pr-4 text-primary hover:text-secondary h-full bg-white font-bold"
+                              href="/forgot-password"
+                            >
+                              Glemt passord?
+                            </Link>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="w-full p-3">
+                      <div className="flex flex-wrap md:justify-end -m-2">
+                        <div className="w-full p-2">
+                          <button
+                            type="submit"
+                            disabled={loading || !formData.email || !formData.password}
+                            className="block px-8 py-3.5 text-lg text-center text-white font-bold bg-primary hover:bg-secondary focus:ring-4 focus:ring-red-200 rounded-xl w-full disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {loading ? 'Logger inn...' : 'Logg inn'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="w-full p-3 hidden">
+                      <p className="text-gray-600 text-center font-bold">
+                        <span>Har du ikke konto?</span>
+                        <a
+                          className="text-primary hover:text-secondary font-bold"
+                          href="#"
+                        >
+                          Registrer ditt firma her
+                        </a>
+                      </p>
+                    </div>
                   </div>
+                </form>
+              ) : (
+                <div className="space-y-4">
+                  {companySelection.map(company => (
+                    <button
+                      key={company.id}
+                      onClick={() => handleCompanySelect(company.id)}
+                      className={`flex items-center w-full p-4 border rounded-lg transition-colors ${selectedCompany === company.id ? 'border-primary bg-primary bg-opacity-10' : 'border-gray-200 hover:border-primary hover:bg-gray-50'}`}
+                    >
+                      <img
+                        src={company.logo}
+                        alt={company.name}
+                        className="w-10 h-10 rounded-full mr-3 object-cover"
+                      />
+                      <span className="text-left font-bold text-gray-700">
+                        {company.name}
+                      </span>
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setLoginStep('credentials')}
+                    className="mt-4 text-sm text-gray-500 hover:text-gray-700"
+                  >
+                    Tilbake til innlogging
+                  </button>
                 </div>
-              </form>
+              )}
             </div>
           </div>
         </div>
