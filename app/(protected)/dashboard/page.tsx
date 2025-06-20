@@ -124,13 +124,7 @@ function SettingsScreen() {
 export default function App() {
   const [active, setActive] = useState(1);
   const [changeCompanyModal, setChangeCompanyModal] = useState(false);
-  const { user, refreshUser } = useAuth();
-
-  useEffect(() => {
-    if (!user) {
-      refreshUser();
-    }
-  }, [user, refreshUser]);
+  const { user } = useAuth();
 
   const handleChangeCompany = () => {
     setChangeCompanyModal(true);

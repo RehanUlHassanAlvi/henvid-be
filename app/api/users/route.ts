@@ -172,6 +172,8 @@ export async function POST(request: NextRequest) {
       email, 
       password,
       phone, 
+      phoneCountryCode,
+      phoneNumber,
       role, 
       companyId,
       image,
@@ -234,6 +236,42 @@ export async function POST(request: NextRequest) {
     const userPassword = password || Math.random().toString(36).slice(-8);
     const hashedPassword = await bcrypt.hash(userPassword, 12);
     
+    // Handle phone number structure
+    let phoneData = {};
+    if (phoneCountryCode && phoneNumber) {
+      phoneData = {
+        countryCode: phoneCountryCode,
+        number: phoneNumber,
+        full: `${phoneCountryCode}${phoneNumber}`
+      };
+    } else if (phone) {
+      // Backward compatibility - try to parse existing phone format
+      const phoneStr = phone.toString();
+      if (phoneStr.startsWith('+')) {
+        // Extract country code and number
+        const match = phoneStr.match(/^(\+\d{1,4})(.+)$/);
+        if (match) {
+          phoneData = {
+            countryCode: match[1],
+            number: match[2],
+            full: phoneStr
+          };
+        } else {
+          phoneData = {
+            countryCode: '+47', // Default to Norway
+            number: phoneStr.slice(1), // Remove the + sign
+            full: phoneStr
+          };
+        }
+      } else {
+        phoneData = {
+          countryCode: '+47', // Default to Norway
+          number: phoneStr,
+          full: `+47${phoneStr}`
+        };
+      }
+    }
+    
         // Create user
     console.log('Creating user with company assignment:', companyId || 'null');
     const user = new User({
@@ -241,7 +279,7 @@ export async function POST(request: NextRequest) {
       lastName,
       email: email.toLowerCase(),
       password: hashedPassword,
-      phone,
+      phone: phoneData,
       role: role || 'user',
       company: companyId || null,
       image: image || '/assets/elements/avatar.png',
@@ -343,6 +381,42 @@ export async function PUT(request: NextRequest) {
       }
       
       updateData.email = updateData.email.toLowerCase();
+    }
+    
+    // Handle phone number structure in updates
+    if (updateData.phoneCountryCode && updateData.phoneNumber) {
+      updateData.phone = {
+        countryCode: updateData.phoneCountryCode,
+        number: updateData.phoneNumber,
+        full: `${updateData.phoneCountryCode}${updateData.phoneNumber}`
+      };
+      delete updateData.phoneCountryCode;
+      delete updateData.phoneNumber;
+    } else if (updateData.phone && typeof updateData.phone === 'string') {
+      // Backward compatibility - parse existing phone format
+      const phoneStr = updateData.phone.toString();
+      if (phoneStr.startsWith('+')) {
+        const match = phoneStr.match(/^(\+\d{1,4})(.+)$/);
+        if (match) {
+          updateData.phone = {
+            countryCode: match[1],
+            number: match[2],
+            full: phoneStr
+          };
+        } else {
+          updateData.phone = {
+            countryCode: '+47',
+            number: phoneStr.slice(1),
+            full: phoneStr
+          };
+        }
+      } else {
+        updateData.phone = {
+          countryCode: '+47',
+          number: phoneStr,
+          full: `+47${phoneStr}`
+        };
+      }
     }
     
     // Validate company if being updated

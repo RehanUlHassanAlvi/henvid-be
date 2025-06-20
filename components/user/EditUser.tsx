@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { LuX, LuUpload, LuImage } from "react-icons/lu";
 import { userApi, handleApiError } from "@/utils/api";
 import { SupabaseImageService } from "@/utils/supabase";
+import PhoneInput from "../PhoneInput";
 
 interface EditUserProps {
   onClose: () => void;
@@ -23,7 +24,8 @@ export default function EditUser({ onClose, userId, onUserUpdated }: EditUserPro
     firstName: '',
     lastName: '',
     email: '',
-    phone: '',
+    phoneCountryCode: '+47',
+    phoneNumber: '',
     image: ''
   });
 
@@ -50,11 +52,39 @@ export default function EditUser({ onClose, userId, onUserUpdated }: EditUserPro
       } else if (response.data) {
         const userData = response.data;
         console.log('User data received:', userData);
+        
+        // Parse phone data
+        let phoneCountryCode = '+47';
+        let phoneNumber = '';
+        
+        if (userData.phone) {
+          if (typeof userData.phone === 'object' && userData.phone.countryCode && userData.phone.number) {
+            // New structured format
+            phoneCountryCode = userData.phone.countryCode;
+            phoneNumber = userData.phone.number;
+          } else if (typeof userData.phone === 'string') {
+            // Legacy format - try to parse
+            const phoneStr = userData.phone.toString();
+            if (phoneStr.startsWith('+')) {
+              const match = phoneStr.match(/^(\+\d{1,4})(.+)$/);
+              if (match) {
+                phoneCountryCode = match[1];
+                phoneNumber = match[2];
+              } else {
+                phoneNumber = phoneStr.slice(1);
+              }
+            } else {
+              phoneNumber = phoneStr;
+            }
+          }
+        }
+        
         setFormData({
           firstName: userData.firstName || '',
           lastName: userData.lastName || '',
           email: userData.email || '',
-          phone: userData.phone || '',
+          phoneCountryCode,
+          phoneNumber,
           image: userData.image || ''
         });
         setSelectedImage(userData.image || null);
@@ -76,6 +106,22 @@ export default function EditUser({ onClose, userId, onUserUpdated }: EditUserPro
     setFormData(prev => ({
       ...prev,
       [name]: value
+    }));
+    if (error) setError(null);
+  };
+
+  const handlePhoneCountryCodeChange = (countryCode: string) => {
+    setFormData(prev => ({
+      ...prev,
+      phoneCountryCode: countryCode
+    }));
+    if (error) setError(null);
+  };
+
+  const handlePhoneNumberChange = (phoneNumber: string) => {
+    setFormData(prev => ({
+      ...prev,
+      phoneNumber: phoneNumber
     }));
     if (error) setError(null);
   };
@@ -278,19 +324,12 @@ export default function EditUser({ onClose, userId, onUserUpdated }: EditUserPro
                 </div>
                 
                 <div className="w-full p-3">
-                  <label
-                    className="block mb-2 text-sm text-gray-500 font-bold"
-                    htmlFor="edituser-phone"
-                  >
-                    Telefonnummer
-                  </label>
-                  <input
-                    className="appearance-none px-6 py-3.5 w-full text-lg text-gray-500 font-bold bg-white placeholder-gray-500 outline-none border border-gray-200 focus:ring-4 focus:ring-red-200 rounded-xl"
+                  <PhoneInput
+                    countryCode={formData.phoneCountryCode}
+                    phoneNumber={formData.phoneNumber}
+                    onCountryCodeChange={handlePhoneCountryCodeChange}
+                    onPhoneNumberChange={handlePhoneNumberChange}
                     id="edituser-phone"
-                    name="phone"
-                    type="tel"
-                    value={formData.phone}
-                    onChange={handleInputChange}
                     placeholder="12345678"
                   />
                 </div>

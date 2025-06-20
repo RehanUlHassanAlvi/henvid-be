@@ -12,8 +12,17 @@ export default function Logoutpage() {
 
   useEffect(() => {
     const performLogout = async () => {
-      await logout();
-      setLoggedOut(true);
+      try {
+        console.log('🚪 Logout page - starting logout process...');
+        // Call logout without automatic redirect since this page handles its own redirect
+        await logout(false);
+        setLoggedOut(true);
+        console.log('✅ Logout page - logout completed successfully');
+      } catch (error) {
+        console.error('❌ Logout page - logout failed:', error);
+        // Even if logout fails, consider user logged out and continue with redirect
+        setLoggedOut(true);
+      }
     };
     
     performLogout();

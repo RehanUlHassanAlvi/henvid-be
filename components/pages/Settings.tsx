@@ -297,9 +297,31 @@ export default function Settings() {
 
   useEffect(() => {
     if (currentUser) {
+      // Properly format phone number for display
+      let phoneDisplay = '';
+      if (currentUser.phone) {
+        if (typeof currentUser.phone === 'object' && (currentUser.phone as any).countryCode && (currentUser.phone as any).number) {
+          // New structured format
+          phoneDisplay = (currentUser.phone as any).number;
+        } else if (typeof currentUser.phone === 'string') {
+          // Legacy format - try to parse
+          const phoneStr = currentUser.phone.toString();
+          if (phoneStr.startsWith('+')) {
+            const match = phoneStr.match(/^(\+\d{1,4})(.+)$/);
+            if (match) {
+              phoneDisplay = match[2];
+            } else {
+              phoneDisplay = phoneStr.slice(1);
+            }
+          } else {
+            phoneDisplay = phoneStr;
+          }
+        }
+      }
+
       setUserForm({
         name: `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim(),
-        phone: currentUser.phone || '',
+        phone: phoneDisplay,
         email: currentUser.email || '',
         language: (currentUser as any).language || 'NO',
       });
@@ -342,10 +364,18 @@ export default function Settings() {
       // Split name into first and last
       const [firstName, ...rest] = userForm.name.split(' ');
       const lastName = rest.join(' ');
+      
+      // Format phone number properly
+      let phoneValue = '';
+      if (userForm.phone && userForm.phone.trim()) {
+        // Default country code to +47 (Norway) if only number is provided
+        phoneValue = `+47${userForm.phone}`;
+      }
+      
       const updatePayload = {
         firstName,
         lastName,
-        phone: userForm.phone,
+        phone: phoneValue,
         email: userForm.email,
         language: userForm.language,
       };

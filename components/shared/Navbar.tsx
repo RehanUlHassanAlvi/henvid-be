@@ -28,7 +28,7 @@ export default function Navbar() {
         <div className="px-2 py-2 md:px-4 md:py-6 flex justify-center items-center">
           <LuSettings2 size={24} className="text-foreground" />
         </div>
-        <Link href="/login">
+        <Link href="/logout">
           <div className="px-2 py-2 md:px-4 md:py-6 flex justify-center items-center">
             <LuLogOut size={24} className="text-foreground" />
           </div>

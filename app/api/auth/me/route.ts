@@ -6,6 +6,7 @@ import jwt from 'jsonwebtoken';
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
 export async function GET(request: NextRequest) {
+  console.log('👤 /api/auth/me called');
   await dbConnect();
   
   try {
@@ -16,10 +17,12 @@ export async function GET(request: NextRequest) {
     
     const token = cookieToken || bearerToken;
     
-    console.log('Auth/me request received. Cookies:', request.cookies.getAll(), 'Authorization header:', authHeader);
+    console.log('🍪 Cookie auth-token present:', !!cookieToken);
+    console.log('🔑 Authorization header present:', !!authHeader);
+    console.log('🎫 Final token present:', !!token);
     
     if (!token) {
-      console.log('No token provided in request.');
+      console.log('❌ No token provided in /me request - returning 401');
       return NextResponse.json({ 
         error: 'No token provided' 
       }, { status: 401 });
@@ -29,7 +32,9 @@ export async function GET(request: NextRequest) {
     let decoded;
     try {
       decoded = jwt.verify(token, JWT_SECRET) as any;
+      console.log('✅ Token valid for user:', decoded.userId);
     } catch (error) {
+      console.log('❌ Invalid token in /me request - returning 401');
       return NextResponse.json({ 
         error: 'Invalid or expired token' 
       }, { status: 401 });
@@ -43,10 +48,13 @@ export async function GET(request: NextRequest) {
     });
     
     if (!session) {
+      console.log('❌ No active session found for user:', decoded.userId, '- returning 401');
       return NextResponse.json({ 
         error: 'Session not found or expired' 
       }, { status: 401 });
     }
+    
+    console.log('✅ Active session found, updating last activity');
     
     // Update session last activity
     session.lastActivity = new Date();
@@ -58,6 +66,7 @@ export async function GET(request: NextRequest) {
       .select('-password');
     
     if (!user || !user.isActive) {
+      console.log('❌ User not found or inactive:', decoded.userId);
       return NextResponse.json({ 
         error: 'User not found or inactive' 
       }, { status: 404 });
@@ -66,6 +75,8 @@ export async function GET(request: NextRequest) {
     // Update user last activity
     user.lastActivityAt = new Date();
     await user.save();
+    
+    console.log('✅ Returning user data for:', user.firstName, user.lastName);
     
     // Format response for frontend compatibility
     const userResponse = {
@@ -103,7 +114,7 @@ export async function GET(request: NextRequest) {
     });
     
   } catch (error) {
-    console.error('Get user error:', error);
+    console.error('💥 Get user error:', error);
     return NextResponse.json({ 
       error: 'Internal server error' 
     }, { status: 500 });

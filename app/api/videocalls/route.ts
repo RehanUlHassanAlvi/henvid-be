@@ -94,9 +94,13 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  console.log('🎯 Video call API POST endpoint hit!');
   await dbConnect();
   
   try {
+    const body = await request.json();
+    console.log('📥 Received request body:', body);
+    
     const { 
       roomCode,
       companyId,
@@ -104,57 +108,88 @@ export async function POST(request: NextRequest) {
       customerPhone,
       customerEmail,
       customerName,
-      initiatedBy
-    } = await request.json();
+      initiatedBy,
+      // Parameters from VideoCallStarter component
+      phone,
+      userId,
+      guestName
+    } = body;
+    
+    // Handle both parameter formats for compatibility
+    let finalCompanyId = companyId;
+    if (!finalCompanyId && userId) {
+      console.log('🔍 Looking up user company for userId:', userId);
+      const user = await User.findById(userId).populate('company');
+      console.log('👤 Found user:', user ? { id: user._id, company: user.company } : 'null');
+      finalCompanyId = user?.company?._id || user?.company;
+    }
+    const finalSupportAgentId = supportAgentId || userId;
+    const finalCustomerPhone = customerPhone || phone;
+    const finalCustomerName = customerName || guestName || 'Guest';
+    
+    console.log('🔧 Final parameters:', {
+      finalCompanyId,
+      finalSupportAgentId,
+      finalCustomerPhone,
+      finalCustomerName
+    });
     
     // Validate required fields
-    if (!roomCode || !companyId) {
+    if (!finalCompanyId) {
+      console.log('❌ Missing company ID');
       return NextResponse.json({ 
-        error: 'Room code and company ID are required' 
+        error: 'Company ID is required' 
       }, { status: 400 });
     }
     
     // Validate company exists
-    const company = await Company.findById(companyId);
+    const company = await Company.findById(finalCompanyId);
     if (!company) {
+      console.log('❌ Company not found:', finalCompanyId);
       return NextResponse.json({ 
         error: 'Company not found' 
       }, { status: 404 });
     }
+    console.log('🏢 Found company:', company.name);
     
     // Validate support agent if provided
-    if (supportAgentId) {
-      const supportAgent = await User.findById(supportAgentId);
+    let supportAgent = null;
+    if (finalSupportAgentId) {
+      supportAgent = await User.findById(finalSupportAgentId);
       if (!supportAgent) {
+        console.log('❌ Support agent not found:', finalSupportAgentId);
         return NextResponse.json({ 
           error: 'Support agent not found' 
         }, { status: 404 });
       }
+      console.log('👨‍💼 Found support agent:', supportAgent.firstName, supportAgent.lastName);
     }
+    
+    // Generate room code if not provided
+    const finalRoomCode = roomCode || generateRoomCode();
+    console.log('🏠 Generated room code:', finalRoomCode);
     
     // Check if room code already exists for active calls
     const existingCall = await VideoCall.findOne({ 
-      roomCode, 
+      roomCode: finalRoomCode, 
       status: { $in: ['initiated', 'started'] }
     });
     
     if (existingCall) {
+      console.log('❌ Room code already exists:', finalRoomCode);
       return NextResponse.json({ 
         error: 'Room code already in use for an active call' 
       }, { status: 409 });
     }
     
-    // Generate room code if not provided
-    const finalRoomCode = roomCode || generateRoomCode();
-    
     // Create video call
     const videoCall = new VideoCall({
       roomCode: finalRoomCode,
-      company: companyId,
-      supportAgent: supportAgentId || null,
-      customerPhone,
+      company: finalCompanyId,
+      supportAgent: finalSupportAgentId || null,
+      customerPhone: finalCustomerPhone,
       customerEmail,
-      customerName,
+      customerName: finalCustomerName,
       status: 'initiated',
       initiatedBy: initiatedBy || 'agent',
       callType: 'support',
@@ -166,12 +201,41 @@ export async function POST(request: NextRequest) {
     });
     
     await videoCall.save();
+    console.log('💾 Video call saved:', videoCall._id);
+    
+    // Send SMS to customer if phone number provided
+    if (finalCustomerPhone) {
+      try {
+        console.log('📱 Sending SMS to:', finalCustomerPhone);
+        const supportAgentName = supportAgent ? `${supportAgent.firstName} ${supportAgent.lastName}` : undefined;
+        console.log('👤 Support agent name for SMS:', supportAgentName);
+        console.log('🏢 Company name for SMS:', company.name);
+        
+        await SMSService.sendVideoCallInvitation(
+          finalCustomerPhone,
+          finalRoomCode,
+          company.name,
+          supportAgentName
+        );
+        console.log('✅ SMS sent successfully to:', finalCustomerPhone);
+      } catch (smsError) {
+        console.error('❌ Failed to send SMS:', smsError);
+        // Don't fail the entire request if SMS fails
+      }
+    } else {
+      console.log('⚠️ No phone number provided, skipping SMS');
+    }
     
     // Populate for response
     await videoCall.populate('company', 'name logo');
-    if (supportAgentId) {
+    if (finalSupportAgentId) {
       await videoCall.populate('supportAgent', 'firstName lastName email image');
     }
+    
+    // Generate room URL for opening new page
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+    const roomUrl = `${baseUrl}/${company.name}/${finalRoomCode}`;
+    console.log('🌐 Generated room URL:', roomUrl);
     
     const callResponse = {
       id: videoCall._id,
@@ -184,13 +248,20 @@ export async function POST(request: NextRequest) {
       customerName: videoCall.customerName,
       initiatedBy: videoCall.initiatedBy,
       callType: videoCall.callType,
-      createdAt: videoCall.createdAt
+      createdAt: videoCall.createdAt,
+      roomUrl: roomUrl,
+      // Legacy format for VideoCallStarter compatibility
+      videoCall: {
+        code: videoCall.roomCode,
+        roomCode: videoCall.roomCode
+      }
     };
     
+    console.log('✅ Sending response:', callResponse);
     return NextResponse.json(callResponse, { status: 201 });
     
   } catch (error) {
-    console.error('Create video call error:', error);
+    console.error('💥 Create video call error:', error);
     return NextResponse.json({ 
       error: 'Failed to create video call' 
     }, { status: 500 });

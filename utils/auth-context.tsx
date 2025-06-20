@@ -25,7 +25,7 @@ interface AuthContextType {
   error: string | null;
   login: (email: string, password: string, companyId?: string) => Promise<boolean | { multipleAccounts: boolean; companies: Array<{ id: string; name: string; logo: string; userId: string }> }>;
   register: (userData: any) => Promise<boolean>;
-  logout: () => Promise<void>;
+  logout: (redirectToLogin?: boolean) => Promise<void>;
   forgotPassword: (email: string) => Promise<boolean>;
   resetPassword: (token: string, password: string) => Promise<boolean>;
   refreshUser: () => Promise<void>;
@@ -53,8 +53,21 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   const clearError = () => setError(null);
 
-  const refreshUser = async () => {
+  const refreshUserInternal = async (forceRefresh: boolean = false) => {
     try {
+      // Don't try to refresh user on auth pages to avoid unnecessary 401 calls
+      if (!forceRefresh && typeof window !== 'undefined') {
+        const currentPath = window.location.pathname;
+        const authPaths = ['/login', '/register', '/forgot-password', '/reset-password', '/verify-email'];
+        
+        if (authPaths.includes(currentPath)) {
+          console.log('🔒 On auth page, skipping user refresh');
+          setUser(null);
+          setLoading(false);
+          return;
+        }
+      }
+      
       const response = await authApi.getCurrentUser();
       if (response.error) {
         setUser(null);
@@ -68,9 +81,29 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     } catch (err) {
       console.error('Error refreshing user:', err);
       setUser(null);
+      
+      // Handle 401 errors by redirecting to login, but only if not already on auth pages
+      if (err instanceof Error && err.message.includes('401')) {
+        console.log('🔒 401 error in refreshUser');
+        if (typeof window !== 'undefined') {
+          const currentPath = window.location.pathname;
+          const authPaths = ['/login', '/register', '/forgot-password', '/reset-password', '/verify-email'];
+          
+          if (!authPaths.includes(currentPath)) {
+            console.log('🔒 Redirecting to login from refreshUser');
+            window.location.href = '/login';
+          } else {
+            console.log('🔒 On auth page, not redirecting');
+          }
+        }
+      }
     } finally {
       setLoading(false);
     }
+  };
+
+  const refreshUser = async () => {
+    await refreshUserInternal(false);
   };
 
   const login = async (email: string, password: string, companyId?: string): Promise<boolean | { multipleAccounts: boolean; companies: Array<{ id: string; name: string; logo: string; userId: string }> }> => {
@@ -94,8 +127,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         };
       }
       
-      // Refresh user data after successful login
-      await refreshUser();
+      // Refresh user data after successful login (force refresh even on login page)
+      await refreshUserInternal(true);
       return true;
     } catch (err) {
       setError('Login failed');
@@ -136,14 +169,47 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
   };
 
-  const logout = async (): Promise<void> => {
+  const logout = async (redirectToLogin: boolean = true): Promise<void> => {
+    setLoading(true);
+    console.log('🚪 Logging out user...');
+    
     try {
+      // Call logout API to invalidate server-side session
       await authApi.logout();
+      console.log('✅ Server logout successful');
     } catch (err) {
-      // Ignore logout errors
-    } finally {
-      setUser(null);
-      setLoading(false);
+      console.error('❌ Server logout failed:', err);
+      // Continue with client-side logout even if server fails
+    }
+
+    // Clear all client-side auth data
+    console.log('🧹 Clearing client auth data...');
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('user');
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('sessionId');
+      // Clear any other auth-related localStorage items
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('auth_') || key.startsWith('user_')) {
+          localStorage.removeItem(key);
+        }
+      });
+    }
+
+    // Clear auth context state
+    setUser(null);
+    setError(null);
+    setLoading(false);
+
+    console.log('✅ User logged out successfully');
+
+    // Redirect to login if requested
+    if (redirectToLogin && typeof window !== 'undefined') {
+      console.log('🔄 Redirecting to login...');
+      // Small delay to ensure state is updated
+      setTimeout(() => {
+        window.location.href = '/login';
+      }, 100);
     }
   };
 
@@ -184,7 +250,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   };
 
   useEffect(() => {
-    refreshUser();
+    refreshUserInternal(false);
   }, []);
 
   const value: AuthContextType = {

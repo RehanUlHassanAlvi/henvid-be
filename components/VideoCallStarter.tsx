@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { LuPhone, LuSend, LuLoader } from 'react-icons/lu';
 import { useAuth } from '@/utils/auth-context';
+import { handleUnauthorized } from '@/utils/api';
 
 interface VideoCallStarterProps {
   onCallCreated?: (roomCode: string, roomUrl: string) => void;
@@ -11,11 +12,69 @@ const VideoCallStarter: React.FC<VideoCallStarterProps> = ({
   onCallCreated,
   className = ""
 }) => {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const [phoneNumber, setPhoneNumber] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loadingCall, setLoadingCall] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  // Show loading state while checking authentication
+  if (loading) {
+    return (
+      <div className={`bg-white p-8 rounded-lg shadow-sm ${className}`}>
+        <div className="text-center">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-orange-100 rounded-full mb-4">
+            <LuLoader className="w-8 h-8 text-orange-600 animate-spin" />
+          </div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show login required message if not authenticated
+  if (!user) {
+    return (
+      <div className={`bg-white p-8 rounded-lg shadow-sm ${className}`}>
+        <div className="text-center">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-red-100 rounded-full mb-4">
+            <LuPhone className="w-8 h-8 text-red-600" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">
+            Login Required 🔐
+          </h2>
+          <p className="text-gray-600 mb-4">
+            You need to be logged in as a company admin to start video calls.
+          </p>
+          <a 
+            href="/login" 
+            className="inline-flex items-center px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-lg transition-colors"
+          >
+            Go to Login
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  // Show company missing message if user has no company
+  if (!user.company?.id) {
+    return (
+      <div className={`bg-white p-8 rounded-lg shadow-sm ${className}`}>
+        <div className="text-center">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-yellow-100 rounded-full mb-4">
+            <LuPhone className="w-8 h-8 text-yellow-600" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">
+            Company Required 🏢
+          </h2>
+          <p className="text-gray-600">
+            You need to be associated with a company to start video calls.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const formatPhoneNumber = (value: string) => {
     // Remove all non-digits
@@ -59,13 +118,22 @@ const VideoCallStarter: React.FC<VideoCallStarterProps> = ({
       return;
     }
 
-    setLoading(true);
+    setLoadingCall(true);
     setError(null);
     setSuccess(null);
 
     try {
+      console.log('🚀 Starting video call with data:', {
+        phone: `+47${cleanPhone}`,
+        companyId: user?.company?.id,
+        userId: user?.id,
+        guestName: 'Kunde',
+        user: user
+      });
+
       const response = await fetch('/api/videocalls', {
         method: 'POST',
+        credentials: 'include', // Include cookies for session-based auth
         headers: {
           'Content-Type': 'application/json',
         },
@@ -77,7 +145,17 @@ const VideoCallStarter: React.FC<VideoCallStarterProps> = ({
         }),
       });
 
+      console.log('📡 API Response status:', response.status);
+
+      // Handle 401 Unauthorized specifically
+      if (response.status === 401) {
+        console.log('🔒 401 Unauthorized - redirecting to login');
+        handleUnauthorized();
+        return;
+      }
+
       const data = await response.json();
+      console.log('📋 API Response data:', data);
 
       if (!response.ok) {
         throw new Error(data.error || 'Kunne ikke starte videosamtale');
@@ -86,15 +164,26 @@ const VideoCallStarter: React.FC<VideoCallStarterProps> = ({
       setSuccess('SMS sendt! Kunden vil motta en link til videosamtalen.');
       setPhoneNumber('');
       
+      // Open new page for video call
+      if (data.roomUrl) {
+        console.log('🌐 Opening new window with URL:', data.roomUrl);
+        window.open(data.roomUrl, '_blank', 'width=1200,height=800');
+      }
+      
       // Notify parent component
       if (onCallCreated) {
-        onCallCreated(data.videoCall.code, data.roomUrl);
+        onCallCreated(data.videoCall.code || data.roomCode, data.roomUrl);
       }
 
     } catch (err) {
+      console.error('❌ Video call error:', err);
+      // Don't show error if it's a redirect
+      if (err instanceof Error && err.message.includes('redirecting to login')) {
+        return;
+      }
       setError(err instanceof Error ? err.message : 'Noe gikk galt');
     } finally {
-      setLoading(false);
+      setLoadingCall(false);
     }
   };
 
@@ -128,17 +217,17 @@ const VideoCallStarter: React.FC<VideoCallStarterProps> = ({
               onChange={handlePhoneChange}
               placeholder="Telephone number"
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none text-lg"
-              disabled={loading}
+              disabled={loadingCall}
             />
           </div>
           
           {/* Send button */}
           <button
             type="submit"
-            disabled={loading || !phoneNumber.trim()}
+            disabled={loadingCall || !phoneNumber.trim()}
             className="px-6 py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center gap-2"
           >
-            {loading ? (
+            {loadingCall ? (
               <LuLoader className="w-5 h-5 animate-spin" />
             ) : (
               <LuSend className="w-5 h-5" />

@@ -7,7 +7,11 @@ const userSchema = new Schema({
   lastName: { type: String, required: true },
   email: { type: String, required: true },
   password: { type: String, required: true },
-  phone: { type: String },
+  phone: {
+    countryCode: { type: String, default: '+47' }, // Default to Norway
+    number: { type: String },
+    full: { type: String } // Computed full number for backward compatibility
+  },
   role: { type: String, enum: ['super_admin', 'admin', 'user', 'guest'], default: 'user' },
   company: { type: Schema.Types.ObjectId, ref: 'Company' },
   language: { type: String, default: 'nb-NO' },
@@ -68,11 +72,26 @@ userSchema.virtual('reviews').get(function() {
   return this.reviewCount;
 });
 
+// Virtual for full phone number (backward compatibility)
+userSchema.virtual('phoneNumber').get(function() {
+  if (this.phone?.countryCode && this.phone?.number) {
+    return `${this.phone.countryCode}${this.phone.number}`;
+  }
+  return this.phone?.full || '';
+});
+
 // Indexes for analytics and queries
 userSchema.index({ company: 1, role: 1, isActive: 1 });
 userSchema.index({ isActive: 1, lastActivityAt: -1 });
 userSchema.index({ totalVideoCalls: -1 });
 userSchema.index({ email: 1, company: 1 }, { unique: true });
+
+// Pre-save middleware to compute full phone number
+userSchema.pre('save', function() {
+  if (this.phone?.countryCode && this.phone?.number) {
+    this.phone.full = `${this.phone.countryCode}${this.phone.number}`;
+  }
+});
 
 // Ensure virtuals are included in JSON
 userSchema.set('toJSON', { virtuals: true });

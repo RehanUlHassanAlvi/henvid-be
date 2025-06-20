@@ -5,6 +5,7 @@ import { LuX, LuUpload, LuImage } from "react-icons/lu";
 import { userApi, handleApiError } from "@/utils/api";
 import { useAuth } from "@/utils/auth-context";
 import { SupabaseImageService } from "@/utils/supabase";
+import PhoneInput from "../PhoneInput";
 
 interface CreateUserProps {
   onClose: () => void;
@@ -23,7 +24,8 @@ export default function CreateUser({ onClose, onSuccess }: CreateUserProps) {
     firstName: '',
     lastName: '',
     email: '',
-    phone: '',
+    phoneCountryCode: '+47',
+    phoneNumber: '',
     role: 'user',
     image: ''
   });
@@ -33,6 +35,22 @@ export default function CreateUser({ onClose, onSuccess }: CreateUserProps) {
     setFormData(prev => ({
       ...prev,
       [name]: value
+    }));
+    if (error) setError(null);
+  };
+
+  const handlePhoneCountryCodeChange = (countryCode: string) => {
+    setFormData(prev => ({
+      ...prev,
+      phoneCountryCode: countryCode
+    }));
+    if (error) setError(null);
+  };
+
+  const handlePhoneNumberChange = (phoneNumber: string) => {
+    setFormData(prev => ({
+      ...prev,
+      phoneNumber: phoneNumber
     }));
     if (error) setError(null);
   };
@@ -452,19 +470,12 @@ export default function CreateUser({ onClose, onSuccess }: CreateUserProps) {
                 />
               </div>
               <div className="w-full p-3">
-                <label
-                  className="block mb-2 text-sm text-gray-500 font-bold"
-                  htmlFor="createuser-phone"
-                >
-                  Telefonnummer
-                </label>
-                <input
-                  className="appearance-none px-6 py-3.5 w-full text-lg text-gray-500 font-bold bg-white placeholder-gray-500 outline-none border border-gray-200 focus:ring-4 focus:ring-red-200 rounded-xl"
+                <PhoneInput
+                  countryCode={formData.phoneCountryCode}
+                  phoneNumber={formData.phoneNumber}
+                  onCountryCodeChange={handlePhoneCountryCodeChange}
+                  onPhoneNumberChange={handlePhoneNumberChange}
                   id="createuser-phone"
-                  name="phone"
-                  type="tel"
-                  value={formData.phone}
-                  onChange={handleInputChange}
                   placeholder="12345678"
                 />
               </div>

@@ -1,4 +1,87 @@
 // API utility functions for seamless frontend-backend integration
+
+// Global function to handle 401 redirects
+export const handleUnauthorized = () => {
+  if (typeof window !== 'undefined') {
+    // Don't redirect if we're already on login, register, or other auth pages
+    const currentPath = window.location.pathname;
+    const authPaths = ['/login', '/register', '/forgot-password', '/reset-password', '/verify-email'];
+    
+    if (authPaths.includes(currentPath)) {
+      console.log('🔒 Already on auth page, not redirecting');
+      return;
+    }
+    
+    // Use comprehensive logout for 401 errors
+    forceLogout('401 Unauthorized');
+  }
+};
+
+// Comprehensive logout utility that can be called from anywhere
+export const forceLogout = (reason: string = 'Manual logout') => {
+  console.log('🚪 Force logout triggered:', reason);
+  
+  if (typeof window !== 'undefined') {
+    // Clear all client-side auth data
+    localStorage.removeItem('user');
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('sessionId');
+    
+    // Clear any other auth-related localStorage items
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith('auth_') || key.startsWith('user_')) {
+        localStorage.removeItem(key);
+      }
+    });
+
+    // Attempt to call logout API (fire and forget)
+    fetch('/api/auth/logout', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    }).catch(err => {
+      console.log('Logout API call failed (continuing anyway):', err);
+    });
+
+    // Redirect to login
+    console.log('🔄 Redirecting to login...');
+    window.location.href = '/login';
+  }
+};
+
+// Quick logout function that can be used in components
+export const quickLogout = () => {
+  console.log('⚡ Quick logout triggered');
+  
+  if (typeof window !== 'undefined') {
+    // Use the logout page for proper user experience
+    window.location.href = '/logout';
+  }
+};
+
+// Enhanced fetch wrapper that handles 401 redirects automatically
+export const fetchWithAuth = async (url: string, options: RequestInit = {}): Promise<Response> => {
+  const response = await fetch(url, {
+    credentials: 'include', // Always include cookies for session-based auth
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+  });
+
+  // Handle 401 Unauthorized responses
+  if (response.status === 401) {
+    console.log('🔒 401 Unauthorized - redirecting to login');
+    handleUnauthorized();
+    throw new Error('Unauthorized - redirecting to login');
+  }
+
+  return response;
+};
+
 interface ApiResponse<T = any> {
   data?: T;
   error?: string;
@@ -64,6 +147,10 @@ export const authApi = {
     try {
       const response = await fetch('/api/auth/logout', {
         method: 'POST',
+        credentials: 'include', // Include cookies for session-based auth
+        headers: {
+          'Content-Type': 'application/json',
+        }
       });
       return await response.json();
     } catch (error) {
@@ -73,14 +160,13 @@ export const authApi = {
 
   getCurrentUser: async (): Promise<ApiResponse> => {
     try {
-      const response = await fetch('/api/auth/me', {
-        credentials: 'include', // Include cookies for session-based auth
-        headers: {
-          'Content-Type': 'application/json',
-        }
-      });
+      const response = await fetchWithAuth('/api/auth/me');
       return await response.json();
     } catch (error) {
+      // If it's a 401 redirect error, don't return an error
+      if (error instanceof Error && error.message.includes('redirecting to login')) {
+        return { error: 'Unauthorized' };
+      }
       return { error: 'Failed to get user' };
     }
   },
@@ -535,10 +621,18 @@ export const subscriptionApi = {
 
 // Dashboard Analytics APIs
 export const dashboardApi = {
-  getOverview: async (companyId?: string): Promise<ApiResponse> => {
+  getOverview: async (companyId?: string, period?: string): Promise<ApiResponse> => {
     try {
-      const params = companyId ? `?company=${companyId}` : '';
-      const response = await fetch(`/api/dashboard/overview${params}`);
+      const searchParams = new URLSearchParams();
+      if (companyId) searchParams.append('company', companyId);
+      if (period) searchParams.append('period', period);
+      
+      const response = await fetch(`/api/dashboard/overview?${searchParams}`, {
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
       return await response.json();
     } catch (error) {
       return { error: 'Failed to fetch overview' };
@@ -777,4 +871,57 @@ export const formatRelativeTime = (dateString: string): string => {
   if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)} timer siden`;
   
   return formatDate(dateString);
+};
+
+// Statistics API
+export const statisticsApi = {
+  getStatistics: async (companyId?: string, period?: string): Promise<ApiResponse> => {
+    try {
+      const searchParams = new URLSearchParams();
+      if (companyId) searchParams.append('company', companyId);
+      if (period) searchParams.append('period', period);
+      
+      const response = await fetch(`/api/statistics?${searchParams}`, {
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      return await response.json();
+    } catch (error) {
+      return { error: 'Failed to fetch statistics' };
+    }
+  }
+};
+
+// Video Call History API (for Log component)
+export const historyApi = {
+  getCallHistory: async (params?: {
+    company?: string;
+    limit?: number;
+    page?: number;
+  }): Promise<PaginatedResponse<any>> => {
+    try {
+      const searchParams = new URLSearchParams();
+      if (params) {
+        Object.entries(params).forEach(([key, value]) => {
+          if (value !== undefined) searchParams.append(key, value.toString());
+        });
+      }
+      
+      const response = await fetch(`/api/videocalls/history?${searchParams}`, {
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      const result = await response.json();
+      return {
+        data: result.entries || [],
+        pagination: result.pagination || { total: 0, page: 1, limit: 50, totalPages: 0 }
+      };
+    } catch (error) {
+      return { data: [], pagination: { total: 0, page: 1, limit: 50, totalPages: 0 } };
+    }
+  }
 }; 
