@@ -141,10 +141,10 @@ async function getOverviewDashboard(query: any, startDate: Date, endDate: Date) 
     recentActivity: {
       calls: recentCalls.map(call => ({
         id: call._id,
-        roomCode: call.roomCode,
+        roomCode: call.code,
         status: call.status,
         company: call.company?.name,
-        agent: call.supportAgent ? `${call.supportAgent.firstName} ${call.supportAgent.lastName}` : null,
+        agent: call.user ? `${call.user.firstName} ${call.user.lastName}` : null,
         createdAt: call.createdAt
       })),
       users: recentUsers.map(user => ({

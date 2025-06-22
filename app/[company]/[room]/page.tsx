@@ -1,20 +1,89 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import toast, { Toaster } from "react-hot-toast";
 import { LuCamera, LuCameraOff, LuCopy, LuPhoneOff } from "react-icons/lu";
 import { MdOutlineStar, MdOutlineStarOutline } from "react-icons/md";
 import VideoCallComponent from "../../../components/VideoCallComponent";
+import { useParams } from "next/navigation";
+
+interface VideoCallInfo {
+  customer: {
+    name: string;
+    phone: string;
+    email?: string;
+    initials: string;
+    image?: string;
+  };
+  company: {
+    name: string;
+    logo?: string;
+  };
+  supportAgent?: {
+    firstName: string;
+    lastName: string;
+    image?: string;
+  };
+  status: string;
+}
 
 export default function Meetingpage() {
   const [meetingStatus, setMeetingStatus] = useState("initiated");
   const [supportCam, setSupportCam] = useState(true);
+  const [videoCallInfo, setVideoCallInfo] = useState<VideoCallInfo | null>(null);
+  const [loading, setLoading] = useState(true);
+  const params = useParams();
 
   const handleSupportCam = () => {
     setSupportCam(!supportCam);
   };
 
-  const roomcode = "TR4B9D";
+  // Get room code from URL parameters
+  const roomcode = params.room as string;
+
+  // Fetch video call information
+  useEffect(() => {
+    const fetchVideoCallInfo = async () => {
+      if (!roomcode) {
+        console.log('No room code provided');
+        setLoading(false);
+        return;
+      }
+      
+      console.log('Fetching video call info for room:', roomcode);
+      
+      try {
+        // Use absolute URL to handle network access properly
+        const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+        const url = `${baseUrl}/api/videocalls/${roomcode}`;
+        console.log('Fetching from URL:', url);
+        
+        const response = await fetch(url);
+        console.log('Response status:', response.status);
+        console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+        
+        const data = await response.json();
+        console.log('Response data:', data);
+        
+        if (response.ok) {
+          setVideoCallInfo(data);
+          // Update meeting status based on video call status
+          setMeetingStatus(data.status);
+          console.log('Video call info set successfully');
+        } else {
+          console.error('Failed to fetch video call info:', data.error);
+          toast.error(`Kunne ikke hente samtaleinfo: ${data.error || 'Ukjent feil'}`);
+        }
+      } catch (error) {
+        console.error('Error fetching video call info:', error);
+        toast.error(`Feil ved lasting av samtaleinfo: ${error instanceof Error ? error.message : 'Ukjent feil'}`);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchVideoCallInfo();
+  }, [roomcode]);
 
   const handleCopyRoomcode = () => {
     navigator.clipboard.writeText(roomcode);
@@ -63,6 +132,40 @@ export default function Meetingpage() {
 
   //temp
   const LoggedIn = false;
+
+  // Show loading state
+  if (loading) {
+    return (
+      <main className="flex flex-col w-full items-center justify-center p-8 min-h-screen">
+        <Toaster />
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          <p className="mt-4 text-gray-600">Laster samtaleinfo...</p>
+          <p className="mt-2 text-sm text-gray-500">Romkode: {roomcode}</p>
+        </div>
+      </main>
+    );
+  }
+
+  // Show error state if loading failed
+  if (!loading && !videoCallInfo) {
+    return (
+      <main className="flex flex-col w-full items-center justify-center p-8 min-h-screen">
+        <Toaster />
+        <div className="text-center">
+          <div className="text-6xl mb-4">❌</div>
+          <h1 className="text-2xl font-bold text-gray-800 mb-4">Kunne ikke laste samtaleinfo</h1>
+          <p className="text-gray-600 mb-4">Romkode: {roomcode}</p>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+          >
+            Prøv igjen
+          </button>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="flex flex-col w-full items-center justify-start p-8">
@@ -247,19 +350,23 @@ export default function Meetingpage() {
           <div className="flex items-center justify-between flex-wrap gap-4 mb-6">
             <div className="flex gap-4 flex-wrap">
               <div className="flex">
-                <div className="relative rounded-full bg-white overflow-hidden h-10 w-10 border-2 border-white">
-                  <img
-                    className="absolute bottom-0 left-1/2 transform -translate-x-1/2"
-                    src="/assets/temp/man-avatar.png"
-                    alt="alt"
-                  />
-                </div>
-                <div className="relative rounded-full bg-white overflow-hidden h-10 w-10 border-2 border-white">
-                  <img
-                    className="absolute bottom-0 left-1/2 transform -translate-x-1/2"
-                    src="/assets/elements/avatar2.png"
-                    alt="alt"
-                  />
+                {/* Support Agent Avatar - Show image if available, otherwise initials */}
+                <div className="relative rounded-full bg-red-500 overflow-hidden h-10 w-10 border-2 border-white flex items-center justify-center">
+                  {videoCallInfo?.supportAgent?.image ? (
+                    <img
+                      className="w-full h-full object-cover"
+                      src={videoCallInfo.supportAgent.image}
+                      alt={`${videoCallInfo.supportAgent.firstName} ${videoCallInfo.supportAgent.lastName}`}
+                    />
+                  ) : (
+                    <span className="text-white text-sm font-bold">
+                      {loading ? '...' : 
+                        videoCallInfo?.supportAgent ? 
+                          `${videoCallInfo.supportAgent.firstName[0]}${videoCallInfo.supportAgent.lastName[0]}`.toUpperCase() : 
+                          'SA'
+                      }
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="bg-gray-50 bg-opacity-50 rounded-lg py-2 px-4 flex items-center gap-2">
@@ -277,7 +384,13 @@ export default function Meetingpage() {
                   />
                 </svg>
                 <p className="text-xs">
-                  <span className="font-semibold ">Kunde</span>
+                  <span className="font-semibold ">
+                    {loading ? 'Laster...' : 
+                      videoCallInfo?.supportAgent ? 
+                        `${videoCallInfo.supportAgent.firstName} ${videoCallInfo.supportAgent.lastName}` : 
+                        'Support Agent'
+                    }
+                  </span>
                   <span />
                   <span className="text-gray-700">
                     &nbsp;deler kameraet sitt
@@ -336,7 +449,7 @@ export default function Meetingpage() {
             meetingStatus={meetingStatus}
             roomCode={roomcode}
             onStatusChange={setMeetingStatus}
-            identity="Support Agent"
+            identity="guest"
           />
 
             {/*
@@ -532,9 +645,13 @@ export default function Meetingpage() {
                 </svg>
                 <p className="text-xs">
                   <span className="font-semibold">
-                    {meetingStatus === "initiated"
+                    {videoCallInfo?.status === "pending"
                       ? "Venter på kunde"
-                      : "2 personer"}
+                      : videoCallInfo?.status === "active"
+                      ? "2 personer"
+                      : videoCallInfo?.status === "ringing"
+                      ? "Ringer kunde..."
+                      : "Kobler til..."}
                   </span>
                   <span />
                   <span className="text-gray-700">&nbsp;</span>

@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     
     // Filter by user (support agent)
     if (user) {
-      query.supportAgent = user;
+      query.user = user;
     }
     
     // Filter by status
@@ -35,13 +35,13 @@ export async function GET(request: NextRequest) {
     
     // Search by room code
     if (roomCode) {
-      query.roomCode = { $regex: roomCode, $options: 'i' };
+      query.code = { $regex: roomCode, $options: 'i' };
     }
     
     const videoCalls = await VideoCall.find(query)
       .populate('company', 'name logo')
-      .populate('supportAgent', 'firstName lastName email image')
-      .populate('customer', 'firstName lastName email phone')
+      .populate('user', 'firstName lastName email image')
+      .populate('guest', 'firstName lastName email phone')
       .sort({ createdAt: -1 })
       .limit(limit)
       .skip((page - 1) * limit);
@@ -51,14 +51,14 @@ export async function GET(request: NextRequest) {
     // Format calls for frontend
     const formattedCalls = videoCalls.map(call => ({
       id: call._id,
-      roomCode: call.roomCode,
+      roomCode: call.code,
       status: call.status,
       company: call.company,
-      supportAgent: call.supportAgent,
-      customer: call.customer,
-      customerPhone: call.customerPhone,
-      customerEmail: call.customerEmail,
-      customerName: call.customerName,
+      supportAgent: call.user,
+      customer: call.guest,
+      customerPhone: call.guestPhone,
+      customerEmail: call.guestEmail,
+      customerName: call.guestName,
       startedAt: call.startedAt,
       endedAt: call.endedAt,
       duration: call.duration,
@@ -68,9 +68,6 @@ export async function GET(request: NextRequest) {
       reconnections: call.reconnections,
       screenshareUsed: call.screenshareUsed,
       problemSolved: call.problemSolved,
-      rating: call.rating,
-      review: call.review,
-      tags: call.tags,
       createdAt: call.createdAt,
       updatedAt: call.updatedAt
     }));
@@ -171,8 +168,8 @@ export async function POST(request: NextRequest) {
     
     // Check if room code already exists for active calls
     const existingCall = await VideoCall.findOne({ 
-      roomCode: finalRoomCode, 
-      status: { $in: ['initiated', 'started'] }
+      code: finalRoomCode, 
+      status: { $in: ['pending', 'ringing', 'active'] }
     });
     
     if (existingCall) {
@@ -184,20 +181,21 @@ export async function POST(request: NextRequest) {
     
     // Create video call
     const videoCall = new VideoCall({
-      roomCode: finalRoomCode,
+      code: finalRoomCode,
       company: finalCompanyId,
-      supportAgent: finalSupportAgentId || null,
-      customerPhone: finalCustomerPhone,
-      customerEmail,
-      customerName: finalCustomerName,
-      status: 'initiated',
-      initiatedBy: initiatedBy || 'agent',
-      callType: 'support',
+      user: finalSupportAgentId || null,
+      guestPhone: finalCustomerPhone,
+      guestName: finalCustomerName,
+      status: 'pending',
       waitingTime: 0,
       responseTime: 0,
       reconnections: 0,
       screenshareUsed: false,
-      problemSolved: false
+      problemSolved: false,
+      metadata: {
+        initiatedBy: initiatedBy || 'agent',
+        callType: 'support'
+      }
     });
     
     await videoCall.save();
@@ -229,7 +227,7 @@ export async function POST(request: NextRequest) {
     // Populate for response
     await videoCall.populate('company', 'name logo');
     if (finalSupportAgentId) {
-      await videoCall.populate('supportAgent', 'firstName lastName email image');
+      await videoCall.populate('user', 'firstName lastName email image');
     }
     
     // Generate room URL for opening new page
@@ -239,21 +237,18 @@ export async function POST(request: NextRequest) {
     
     const callResponse = {
       id: videoCall._id,
-      roomCode: videoCall.roomCode,
+      roomCode: videoCall.code,
       status: videoCall.status,
       company: videoCall.company,
-      supportAgent: videoCall.supportAgent,
-      customerPhone: videoCall.customerPhone,
-      customerEmail: videoCall.customerEmail,
-      customerName: videoCall.customerName,
-      initiatedBy: videoCall.initiatedBy,
-      callType: videoCall.callType,
+      supportAgent: videoCall.user,
+      customerPhone: videoCall.guestPhone,
+      customerName: videoCall.guestName,
       createdAt: videoCall.createdAt,
       roomUrl: roomUrl,
       // Legacy format for VideoCallStarter compatibility
       videoCall: {
-        code: videoCall.roomCode,
-        roomCode: videoCall.roomCode
+        code: videoCall.code,
+        roomCode: videoCall.code
       }
     };
     
@@ -284,7 +279,7 @@ export async function PUT(request: NextRequest) {
     // Remove fields that shouldn't be updated directly
     delete updateData._id;
     delete updateData.createdAt;
-    delete updateData.roomCode; // Room code shouldn't change
+    delete updateData.code; // Room code shouldn't change
     
     // Handle status transitions
     if (updateData.status) {
@@ -294,10 +289,10 @@ export async function PUT(request: NextRequest) {
       }
       
       // Update timestamps based on status changes
-      if (updateData.status === 'started' && currentCall.status === 'initiated') {
+      if (updateData.status === 'active' && currentCall.status === 'pending') {
         updateData.startedAt = new Date();
         updateData.waitingTime = Date.now() - currentCall.createdAt.getTime();
-      } else if (updateData.status === 'ended' && currentCall.status === 'started') {
+      } else if (updateData.status === 'ended' && currentCall.status === 'active') {
         updateData.endedAt = new Date();
         if (currentCall.startedAt) {
           updateData.duration = Date.now() - currentCall.startedAt.getTime();
@@ -312,8 +307,8 @@ export async function PUT(request: NextRequest) {
       { new: true, runValidators: true }
     )
     .populate('company', 'name logo')
-    .populate('supportAgent', 'firstName lastName email image')
-    .populate('customer', 'firstName lastName email phone');
+    .populate('user', 'firstName lastName email image')
+    .populate('guest', 'firstName lastName email phone');
     
     if (!videoCall) {
       return NextResponse.json({ error: 'Call not found' }, { status: 404 });
@@ -321,20 +316,18 @@ export async function PUT(request: NextRequest) {
     
     const callResponse = {
       id: videoCall._id,
-      roomCode: videoCall.roomCode,
+      roomCode: videoCall.code,
       status: videoCall.status,
       company: videoCall.company,
-      supportAgent: videoCall.supportAgent,
-      customer: videoCall.customer,
-      customerPhone: videoCall.customerPhone,
-      customerEmail: videoCall.customerEmail,
-      customerName: videoCall.customerName,
+      supportAgent: videoCall.user,
+      customer: videoCall.guest,
+      customerPhone: videoCall.guestPhone,
+      customerEmail: videoCall.guestEmail,
+      customerName: videoCall.guestName,
       startedAt: videoCall.startedAt,
       endedAt: videoCall.endedAt,
       duration: videoCall.duration,
       quality: videoCall.quality,
-      rating: videoCall.rating,
-      review: videoCall.review,
       problemSolved: videoCall.problemSolved,
       createdAt: videoCall.createdAt,
       updatedAt: videoCall.updatedAt
@@ -366,8 +359,8 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Call not found' }, { status: 404 });
     }
     
-    // Only allow cancellation of initiated calls or soft delete of ended calls
-    if (videoCall.status === 'started') {
+    // Only allow cancellation of pending calls or soft delete of ended calls
+    if (videoCall.status === 'active') {
       return NextResponse.json({ 
         error: 'Cannot delete active call. End the call first.' 
       }, { status: 400 });

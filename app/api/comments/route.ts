@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
     
     const comments = await Comment.find(query)
       .populate('user', 'firstName lastName email image role')
-      .populate('videoCall', 'roomCode status company')
+      .populate('videoCall', 'code status company')
       .sort({ createdAt: -1 })
       .limit(limit)
       .skip((page - 1) * limit);
@@ -128,7 +128,7 @@ export async function POST(request: NextRequest) {
     // Populate for response
     await comment.populate('user', 'firstName lastName email image role');
     if (videoCallId) {
-      await comment.populate('videoCall', 'roomCode status company');
+      await comment.populate('videoCall', 'code status company');
     }
     
     const commentResponse = {
@@ -180,7 +180,7 @@ export async function PUT(request: NextRequest) {
       { new: true, runValidators: true }
     )
     .populate('user', 'firstName lastName email image role')
-    .populate('videoCall', 'roomCode status company');
+    .populate('videoCall', 'code status company');
     
     if (!comment) {
       return NextResponse.json({ error: 'Comment not found' }, { status: 404 });

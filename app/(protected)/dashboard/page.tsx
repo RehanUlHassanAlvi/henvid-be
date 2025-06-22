@@ -24,6 +24,98 @@ import { useAuth } from "@/utils/auth-context";
 
 //=================================================================================================================================================
 function MainScreen() {
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const { user } = useAuth();
+
+
+
+  const handleSendClick = async () => {
+    if (!phoneNumber.trim()) {
+      alert("Vennligst skriv inn et telefonnummer");
+      return;
+    }
+
+    // Debug user object
+    console.log('Current user object:', user);
+    console.log('Company ID:', user?.company?.id);
+    console.log('Company _id:', user?.company?._id);
+    console.log('User ID:', user?.id);
+
+    // Try both id and _id for company (MongoDB can return either)
+    const companyId = user?.company?.id || user?.company?._id;
+    
+    if (!companyId) {
+      alert("Feil: Ingen bedriftsinformasjon funnet. Vennligst logg inn på nytt.");
+      return;
+    }
+
+    setIsLoading(true);
+    
+    try {
+      // Create video call record first (this will generate unique room ID and store customer info)
+      const videoCallResponse = await fetch('/api/videocalls', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          customerPhone: phoneNumber,
+          customerName: 'Kunde', // We can enhance this later to ask for name
+          companyId: companyId,
+          supportAgentId: user?.id,
+          initiatedBy: 'agent'
+        }),
+      });
+
+      const videoCallResult = await videoCallResponse.json();
+      
+      if (!videoCallResponse.ok) {
+        throw new Error(videoCallResult.error || 'Failed to create video call');
+      }
+
+      const roomId = videoCallResult.roomCode;
+      console.log('Created video call with room ID:', roomId);
+      
+      // Get company name from user context (fallback to 'henvid' if not available)
+      const companyName = user?.company?.name?.toLowerCase().replace(/\s+/g, '-') || 'henvid';
+      const videoUrl = `/${companyName}/${roomId}`;
+      const fullVideoUrl = `${window.location.origin}${videoUrl}`;
+      
+      console.log('📱 Generated video URL:', fullVideoUrl);
+      
+      // Send SMS with video call link
+      const smsResponse = await fetch('/api/sms', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          phone: phoneNumber,
+          message: `Hei! Du har fått en videosamtale fra ${user?.company?.name || 'Henvid'}. Klikk på lenken for å delta: ${fullVideoUrl}`
+        }),
+      });
+
+      const smsResult = await smsResponse.json();
+      
+      if (!smsResponse.ok) {
+        throw new Error(smsResult.error || 'Failed to send SMS');
+      }
+
+      console.log('SMS sent successfully');
+      
+      // Then open the video page with proper company/room structure
+      console.log('Opening video URL:', videoUrl);
+      window.open(videoUrl, "_blank", "noopener,noreferrer");
+      
+    } catch (error) {
+      console.error('Error in video call process:', error);
+      alert(`Feil: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <main className="flex flex-col w-full items-center justify-center p-2 md:p-8 h-full">
       <div className="w-full h-full flex flex-col justify-center items-center bg-highlight rounded-2xl p-4 min-h-[50dvh] pb-96">
@@ -56,6 +148,8 @@ function MainScreen() {
             inputMode="numeric"
             pattern="\d*"
             maxLength={11}
+            value={phoneNumber}
+            onChange={(e) => setPhoneNumber(e.target.value)}
             onInput={(e) => {
               const input = e.target as HTMLInputElement;
               input.value = input.value.replace(/\D/g, "").slice(0, 11);
@@ -70,13 +164,14 @@ function MainScreen() {
         </Link>
         */}
           <button
-            className="whitespace-nowrap py-3 px-4 rounded-xl border text-white border-gray-200 bg-primary hover:bg-secondary focus:ring focus:ring-red-200 transition duration-200 flex items-center gap-2"
-            onClick={() =>
-              window.open("/fibersor/TR4B9D", "_blank", "noopener,noreferrer")
-            }
+            className="whitespace-nowrap py-3 px-4 rounded-xl border text-white border-gray-200 bg-primary hover:bg-secondary focus:ring focus:ring-red-200 transition duration-200 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={handleSendClick}
+            disabled={isLoading}
           >
             <LuNavigation />
-            <span className="font-semibold text-sm ">Send</span>
+            <span className="font-semibold text-sm ">
+              {isLoading ? "Sender..." : "Send"}
+            </span>
           </button>
         </div>
       </div>

@@ -84,7 +84,7 @@ export async function GET(request: NextRequest) {
       }),
       VideoCall.countDocuments({ 
         company: companyId, 
-        status: { $in: ['initiated', 'started'] }
+        status: { $in: ['pending', 'ringing', 'active'] }
       }),
       Payment.aggregate([
         { 
@@ -162,10 +162,10 @@ export async function GET(request: NextRequest) {
     
     // Get recent activity
     const recentCalls = await VideoCall.find({ company: companyId })
-      .populate('supportAgent', 'firstName lastName')
+      .populate('user', 'firstName lastName')
       .sort({ createdAt: -1 })
       .limit(5)
-      .select('roomCode status supportAgent customerPhone createdAt duration');
+      .select('code status user guestPhone createdAt duration');
     
     const recentUsers = await User.find({ company: companyId, isActive: true })
       .sort({ createdAt: -1 })
@@ -215,12 +215,12 @@ export async function GET(request: NextRequest) {
       recentActivity: {
         calls: recentCalls.map(call => ({
           id: call._id,
-          roomCode: call.roomCode,
+          roomCode: call.code,
           status: call.status,
-          agent: call.supportAgent ? 
-            `${call.supportAgent.firstName} ${call.supportAgent.lastName}` : 
+          agent: call.user ? 
+            `${call.user.firstName} ${call.user.lastName}` : 
             'Ingen agent',
-          customerPhone: call.customerPhone || 'Ukjent',
+          customerPhone: call.guestPhone || 'Ukjent',
           duration: call.duration || 0,
           createdAt: call.createdAt
         })),

@@ -1,4 +1,6 @@
-import { AccessToken, VideoGrant } from 'twilio';
+const twilio = require('twilio');
+const { AccessToken } = twilio.jwt;
+const { VideoGrant } = AccessToken;
 
 export class TwilioVideoService {
   
@@ -66,9 +68,13 @@ export class TwilioVideoService {
    * @returns boolean indicating if valid
    */
   static isValidRoomCode(roomCode: string): boolean {
-    // Format: prefix-timestamp-random (e.g., comp-1234567890-abc123)
-    const roomCodeRegex = /^[a-z0-9]+-[a-z0-9]+-[a-z0-9]+$/;
-    return roomCodeRegex.test(roomCode);
+    // Accept both formats:
+    // 1. Simple format: ABC123 (6 alphanumeric characters)
+    // 2. Complex format: prefix-timestamp-random (e.g., comp-1234567890-abc123)
+    const simpleFormat = /^[A-Z0-9]{6}$/;
+    const complexFormat = /^[a-z0-9]+-[a-z0-9]+-[a-z0-9]+$/;
+    
+    return simpleFormat.test(roomCode) || complexFormat.test(roomCode);
   }
 
   /**

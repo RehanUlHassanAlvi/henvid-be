@@ -54,9 +54,9 @@ export async function GET(request: NextRequest) {
       company: companyId,
       status: { $in: ['ended', 'failed'] } // Only completed calls for history
     })
-    .populate('supportAgent', 'firstName lastName')
+    .populate('user', 'firstName lastName')
     .populate({
-      path: 'reviews',
+      path: 'review',
       model: 'Review',
       select: 'rating ratingHelpfulness problemSolved content'
     })
@@ -101,21 +101,20 @@ export async function GET(request: NextRequest) {
         return {
           id: sequentialId,
           callId: call._id,
-          phone: call.customerPhone || 'Ukjent nummer',
-          employee: call.supportAgent ? 
-            `${call.supportAgent.firstName} ${call.supportAgent.lastName}` : 
+          phone: call.guestPhone || 'Ukjent nummer',
+          employee: call.user ? 
+            `${call.user.firstName} ${call.user.lastName}` : 
             'Ingen agent',
-          comment: review?.content || call.notes || '',
+          comment: review?.content || '',
           date: formatNorwegianDate(call.createdAt),
           length: durationInMinutes,
           rating: ratingText,
           resolved: review?.problemSolved || call.status === 'ended',
           status: call.status,
-          roomCode: call.roomCode,
+          roomCode: call.code,
           startedAt: call.startedAt,
           endedAt: call.endedAt,
-          quality: call.quality,
-          tags: call.tags || []
+          quality: call.quality
         };
       })
     );

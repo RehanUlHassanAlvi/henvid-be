@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import Video, { Room, LocalVideoTrack, LocalAudioTrack, RemoteParticipant } from "twilio-video";
-import VideoCallControls from "./VideoCallControls";
+import Video, { Room } from "twilio-video";
 
 interface VideoCallComponentProps {
   meetingStatus: string;
@@ -19,34 +18,40 @@ const VideoCallComponent: React.FC<VideoCallComponentProps> = ({
 }) => {
   const [room, setRoom] = useState<Room | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [participants, setParticipants] = useState<RemoteParticipant[]>([]);
+  const [isConnected, setIsConnected] = useState(false);
+  const [remoteParticipants, setRemoteParticipants] = useState(0);
   const [error, setError] = useState<string | null>(null);
   
-  const localVideoRef = useRef<HTMLDivElement>(null);
-  const remoteVideoRef = useRef<HTMLDivElement>(null);
-  const localVideoTrackRef = useRef<LocalVideoTrack | null>(null);
-  const localAudioTrackRef = useRef<LocalAudioTrack | null>(null);
+  const localMediaRef = useRef<HTMLDivElement>(null);
+  const remoteMediaRef = useRef<HTMLDivElement>(null);
+  const [localVideoTrackState, setLocalVideoTrackState] = useState<any | null>(null);
+  const [localAudioTrackState, setLocalAudioTrackState] = useState<any | null>(null);
 
-  // Auto-connect when meeting status changes to "started"
+  // Auto-join room when component mounts or when we want to start the call
   useEffect(() => {
-    if (meetingStatus === "started" && !room && !isConnecting) {
+    // Auto-join for guests immediately, for hosts when status becomes active
+    const shouldJoin = identity.includes('guest') || meetingStatus === "active" || meetingStatus === "ringing";
+    
+    if (shouldJoin && !room && !isConnecting) {
       joinRoom();
     }
     
-    // Cleanup on unmount or when meeting ends
+    // Cleanup on unmount
     return () => {
       if (room) {
         disconnectRoom();
       }
     };
-  }, [meetingStatus]);
+  }, [meetingStatus, roomCode]);
 
   const joinRoom = async () => {
     try {
       setIsConnecting(true);
       setError(null);
       
-      // Get token from our local API
+      console.log('Joining room:', roomCode, 'as:', identity);
+      
+      // Get token from our API
       const res = await fetch("/api/videocalls/token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -56,211 +61,255 @@ const VideoCallComponent: React.FC<VideoCallComponentProps> = ({
           participantId: identity
         }),
       });
+      
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || 'Failed to get token');
+      }
+      
       const data = await res.json();
+      console.log('Got token data:', data);
 
-      // Create local tracks
-      const [localVideoTrack, localAudioTrack] = await Promise.all([
-        Video.createLocalVideoTrack(),
-        Video.createLocalAudioTrack()
-      ]);
+      // Create local audio track (always available)
+      const localAudioTrack = await Video.createLocalAudioTrack();
+      setLocalAudioTrackState(localAudioTrack);
 
-      localVideoTrackRef.current = localVideoTrack;
-      localAudioTrackRef.current = localAudioTrack;
-
-      // Connect to room
-      const joinedRoom = await Video.connect(data.token, {
-        name: roomCode,
-        tracks: [localAudioTrack, localVideoTrack],
-      });
-
-      setRoom(joinedRoom);
-      setIsConnecting(false);
-
-      // Attach local video
-      if (localVideoRef.current) {
-        localVideoRef.current.innerHTML = "";
-        const videoElement = localVideoTrack.attach();
-        videoElement.style.width = "100%";
-        videoElement.style.height = "100%";
-        videoElement.style.objectFit = "cover";
-        videoElement.style.borderRadius = "0.75rem"; // rounded-xl
-        localVideoRef.current.appendChild(videoElement);
+      // Try to create local video track – if webcam is missing we'll continue with audio-only
+      let localVideoTrack: any = null;
+      try {
+        localVideoTrack = await Video.createLocalVideoTrack();
+        setLocalVideoTrackState(localVideoTrack);
+      } catch (trackErr: any) {
+        console.warn('🎥  Could not get webcam, continuing audio-only:', trackErr?.message || trackErr);
       }
 
-      // Handle participants
-      const updateParticipants = () => {
-        setParticipants(Array.from(joinedRoom.participants.values()));
+      const initialTracks = localVideoTrack ? [localAudioTrack, localVideoTrack] : [localAudioTrack];
+
+      // Connect to Twilio Video room
+      const connectedRoom = await Video.connect(data.accessToken, {
+        name: roomCode,
+        tracks: initialTracks,
+      });
+
+      setRoom(connectedRoom);
+      setIsConnected(true);
+      setIsConnecting(false);
+
+      // Attach local video if we have it
+      if (localVideoTrack && localMediaRef.current) {
+        localMediaRef.current.innerHTML = '';
+        const element = localVideoTrack.attach();
+        element.style.width = '100%';
+        element.style.height = '100%';
+        element.style.objectFit = 'cover';
+        element.style.borderRadius = '0.75rem';
+        localMediaRef.current.appendChild(element);
+      }
+
+      // If audio-only, show placeholder text in local tile
+      if (!localVideoTrack && localMediaRef.current) {
+        localMediaRef.current.innerHTML = '<div style="color:white;text-align:center;font-size:12px;padding-top:14px">Ingen kamera</div>'; 
+      }
+
+      // Handle participant events
+      const updateRemoteParticipantCount = () => {
+        const count = connectedRoom.participants.size;
+        setRemoteParticipants(count);
+        console.log('Remote participants in room:', count);
+        
+        // Update status based on participant count
+        if (onStatusChange) {
+          if (count >= 1) {
+            onStatusChange('active');
+          } else {
+            onStatusChange('pending');
+          }
+        }
       };
 
-      // Handle existing participants
-      joinedRoom.participants.forEach((participant) => {
-        participant.tracks.forEach((publication) => {
-          if (publication.isSubscribed && publication.track) {
-            attachTrack(publication.track);
+      // Show remote participant tracks when they connect
+      connectedRoom.on("participantConnected", participant => {
+        console.log('Participant connected:', participant.identity);
+        updateRemoteParticipantCount();
+        
+        participant.on("trackSubscribed", track => {
+          console.log('Track subscribed:', track.kind);
+          if (remoteMediaRef.current) {
+            const element = (track as any).attach();
+            if (track.kind === 'video') {
+              element.style.width = '100%';
+              element.style.height = '100%';
+              element.style.objectFit = 'cover';
+              element.style.borderRadius = '0.75rem';
+            }
+            remoteMediaRef.current.appendChild(element);
           }
         });
-        participant.on("trackSubscribed", attachTrack);
-        participant.on("trackUnsubscribed", detachTrack);
-      });
-
-      // Handle new participants
-      joinedRoom.on("participantConnected", (participant) => {
-        updateParticipants();
-        participant.tracks.forEach((publication) => {
-          if (publication.isSubscribed && publication.track) {
-            attachTrack(publication.track);
-          }
+        
+        participant.on("trackUnsubscribed", track => {
+          console.log('Track unsubscribed:', track.kind);
+          (track as any).detach().forEach((element: any) => element.remove());
         });
-        participant.on("trackSubscribed", attachTrack);
-        participant.on("trackUnsubscribed", detachTrack);
       });
 
-      joinedRoom.on("participantDisconnected", () => {
-        updateParticipants();
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.innerHTML = "";
+      // Handle participant disconnection
+      connectedRoom.on("participantDisconnected", participant => {
+        console.log('Participant disconnected:', participant.identity);
+        updateRemoteParticipantCount();
+        
+        // Clear remote video when participant leaves
+        if (remoteMediaRef.current) {
+          remoteMediaRef.current.innerHTML = '';
         }
       });
 
-      updateParticipants();
-      
-      // Auto-transition to "done" status when video is ready
-      if (onStatusChange) {
-        setTimeout(() => {
-          onStatusChange("done");
-        }, 1000);
-      }
+      // Show tracks for already connected participants
+      connectedRoom.participants.forEach(participant => {
+        participant.tracks.forEach(publication => {
+          if (publication.track && remoteMediaRef.current) {
+            const element = (publication.track as any).attach();
+            if (publication.track.kind === 'video') {
+              element.style.width = '100%';
+              element.style.height = '100%';
+              element.style.objectFit = 'cover';
+              element.style.borderRadius = '0.75rem';
+            }
+            remoteMediaRef.current.appendChild(element);
+          }
+        });
+      });
+
+      updateRemoteParticipantCount();
 
     } catch (error) {
       console.error("Error joining room:", error);
       setError(`Failed to join room: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setIsConnecting(false);
-    }
-  };
-
-  const attachTrack = (track) => {
-    if (!track || !remoteVideoRef.current) return;
-    
-    const trackElement = track.attach();
-    trackElement.style.width = "100%";
-    trackElement.style.height = "100%";
-    trackElement.style.objectFit = "cover";
-    trackElement.style.borderRadius = "0.75rem"; // rounded-xl
-    
-    remoteVideoRef.current.innerHTML = "";
-    remoteVideoRef.current.appendChild(trackElement);
-  };
-
-  const detachTrack = (track) => {
-    if (track) {
-      const elements = track.detach();
-      elements.forEach((element) => element.remove());
+      setIsConnected(false);
     }
   };
 
   const disconnectRoom = () => {
     if (room) {
-      // Stop and detach local tracks
-      if (localVideoTrackRef.current) {
-        localVideoTrackRef.current.stop();
-        localVideoTrackRef.current.detach().forEach((element) => element.remove());
-        localVideoTrackRef.current = null;
-      }
-      if (localAudioTrackRef.current) {
-        localAudioTrackRef.current.stop();
-        localAudioTrackRef.current.detach().forEach((element) => element.remove());
-        localAudioTrackRef.current = null;
-      }
-
+      console.log('Disconnecting from room');
       room.disconnect();
       setRoom(null);
-      setParticipants([]);
+      setIsConnected(false);
+      setRemoteParticipants(0);
 
       // Clear video containers
-      if (localVideoRef.current) localVideoRef.current.innerHTML = "";
-      if (remoteVideoRef.current) remoteVideoRef.current.innerHTML = "";
+      if (localMediaRef.current) localMediaRef.current.innerHTML = "";
+      if (remoteMediaRef.current) remoteMediaRef.current.innerHTML = "";
     }
   };
 
-  // Render different states based on meetingStatus - matching existing UI exactly
-  if (meetingStatus === "initiated") {
+  // Show error state
+  if (error) {
     return (
-      <div className={`h-full w-full bg-tertiary rounded-xl ${className}`}>
-        <div className="w-full h-full flex justify-center items-center">
-          <p className="text-highlight text-center">
-            Venter på kunden skal koble til...
-          </p>
+      <div className={`h-full w-full bg-red-50 rounded-xl ${className} flex items-center justify-center p-4`}>
+        <div className="text-center">
+          <div className="text-red-500 text-4xl mb-4">❌</div>
+          <p className="text-red-700 font-semibold mb-2">Video Call Error</p>
+          <p className="text-red-600 text-sm mb-4">{error}</p>
+          <button 
+            onClick={() => {
+              setError(null);
+              joinRoom();
+            }}
+            className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
+          >
+            Try Again
+          </button>
         </div>
       </div>
     );
   }
 
-  if (meetingStatus === "started") {
+  // Show connecting state
+  if (isConnecting) {
     return (
-      <div className={`h-full w-full bg-tertiary rounded-xl ${className}`}>
-        <div className="w-full h-full flex justify-center items-center">
-          <p className="text-highlight text-center">
-            {isConnecting 
-              ? "Kobler til videosignal..." 
-              : "Kunden har koblet til, venter på videosignal"
-            }
-          </p>
+      <div className={`h-full w-full bg-tertiary rounded-xl ${className} flex items-center justify-center`}>
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-4"></div>
+          <p className="text-highlight">Kobler til video...</p>
         </div>
       </div>
     );
   }
 
-  // When meetingStatus === "done", show the video interface
-  if (meetingStatus === "done" && room) {
+  // Show waiting state for pending calls
+  if (meetingStatus === "pending" && !isConnected) {
     return (
-      <div className={`relative w-full h-full rounded-xl overflow-hidden ${className}`}>
-        {/* Main video area - Remote participant or local if no remote */}
-        <div ref={remoteVideoRef} className="w-full h-full bg-gray-800 rounded-xl">
-          {participants.length === 0 && (
-            <div ref={localVideoRef} className="w-full h-full bg-gray-800 rounded-xl" />
+      <div className={`h-full w-full bg-tertiary rounded-xl ${className} flex items-center justify-center`}>
+        <div className="text-center">
+          <div className="text-highlight text-4xl mb-4">⏳</div>
+          <p className="text-highlight">
+            {identity.includes('guest') ? 'Venter på support agent...' : 'Venter på kunden skal koble til...'}
+          </p>
+          {!identity.includes('guest') && (
+            <button 
+              onClick={joinRoom}
+              className="mt-4 px-4 py-2 bg-primary text-white rounded-lg hover:bg-secondary"
+            >
+              Start Video Call
+            </button>
           )}
         </div>
-        
-        {/* Picture-in-picture local video when there are remote participants */}
-        {participants.length > 0 && (
-          <div className="absolute bottom-4 right-4 w-32 h-24 bg-gray-800 rounded-lg overflow-hidden border-2 border-white shadow-lg">
-            <div ref={localVideoRef} className="w-full h-full" />
-          </div>
-        )}
-
-        {/* Video Call Controls */}
-        <VideoCallControls
-          room={room}
-          localVideoTrack={localVideoTrackRef.current}
-          localAudioTrack={localAudioTrackRef.current}
-          isVisible={true}
-        />
-        
-        {/* Error overlay */}
-        {error && (
-          <div className="absolute inset-0 bg-black bg-opacity-75 flex items-center justify-center rounded-xl">
-            <div className="text-white text-center p-4">
-              <p className="text-sm">{error}</p>
-              <button 
-                onClick={joinRoom}
-                className="mt-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm"
-              >
-                Prøv igjen
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     );
   }
 
-  // Fallback to original placeholder (shouldn't normally reach here)
+  // Show connected video call
   return (
-    <img
-      className={`w-full h-full object-contain rounded-xl ${className}`}
-      src="/assets/images/customer1.jpg"
-      alt="Main"
-    />
+    <div className={`h-full w-full bg-tertiary rounded-xl ${className} relative overflow-hidden`}>
+      {/* Remote video (main view) - shows the OTHER person's video */}
+      <div className="w-full h-full">
+        <div 
+          ref={remoteMediaRef} 
+          className="w-full h-full bg-gray-800 rounded-xl flex items-center justify-center"
+        >
+          {remoteParticipants < 1 && (
+            <div className="text-center text-white">
+              <div className="text-4xl mb-4">👤</div>
+              <p>
+                {identity.includes('guest') 
+                  ? 'Venter på support agent...' 
+                  : 'Venter på kunden skal koble til...'
+                }
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+      
+      {/* Local video (picture-in-picture) - shows YOUR video */}
+      <div className="absolute bottom-4 right-4 w-48 h-36 bg-gray-900 rounded-lg overflow-hidden border-2 border-white shadow-lg">
+        <div 
+          ref={localMediaRef} 
+          className="w-full h-full bg-gray-700 flex items-center justify-center"
+        >
+          <div className="text-white text-sm">Din video</div>
+        </div>
+      </div>
+      
+      {/* Connection status */}
+      <div className="absolute top-4 left-4 bg-black bg-opacity-50 text-white px-3 py-1 rounded-full text-sm">
+        {remoteParticipants >= 1 
+          ? `${remoteParticipants + 1} personer tilkoblet`
+          : 'Venter på deltaker...'
+        }
+      </div>
+      
+      {/* Disconnect button */}
+      <div className="absolute top-4 right-4">
+        <button 
+          onClick={disconnectRoom}
+          className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm"
+        >
+          Forlat samtale
+        </button>
+      </div>
+    </div>
   );
 };
 

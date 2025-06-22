@@ -10,6 +10,7 @@ interface User {
   role: string;
   company?: {
     id: string;
+    _id?: string; // MongoDB ObjectId format
     name: string;
     logo?: string;
   };
@@ -55,13 +56,16 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   const refreshUserInternal = async (forceRefresh: boolean = false) => {
     try {
-      // Don't try to refresh user on auth pages to avoid unnecessary 401 calls
+      // Don't try to refresh user on auth pages or guest video call pages to avoid unnecessary 401 calls
       if (!forceRefresh && typeof window !== 'undefined') {
         const currentPath = window.location.pathname;
         const authPaths = ['/login', '/register', '/forgot-password', '/reset-password', '/verify-email'];
         
-        if (authPaths.includes(currentPath)) {
-          console.log('🔒 On auth page, skipping user refresh');
+        // Check if this is a guest video call page (format: /company/room)
+        const isGuestVideoCall = /^\/[^\/]+\/[^\/]+$/.test(currentPath);
+        
+        if (authPaths.includes(currentPath) || isGuestVideoCall) {
+          console.log('🔒 On auth page or guest video call, skipping user refresh');
           setUser(null);
           setLoading(false);
           return;
@@ -82,18 +86,21 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       console.error('Error refreshing user:', err);
       setUser(null);
       
-      // Handle 401 errors by redirecting to login, but only if not already on auth pages
+      // Handle 401 errors by redirecting to login, but only if not already on auth pages or guest video calls
       if (err instanceof Error && err.message.includes('401')) {
         console.log('🔒 401 error in refreshUser');
         if (typeof window !== 'undefined') {
           const currentPath = window.location.pathname;
           const authPaths = ['/login', '/register', '/forgot-password', '/reset-password', '/verify-email'];
           
-          if (!authPaths.includes(currentPath)) {
+          // Check if this is a guest video call page (format: /company/room)
+          const isGuestVideoCall = /^\/[^\/]+\/[^\/]+$/.test(currentPath);
+          
+          if (!authPaths.includes(currentPath) && !isGuestVideoCall) {
             console.log('🔒 Redirecting to login from refreshUser');
             window.location.href = '/login';
           } else {
-            console.log('🔒 On auth page, not redirecting');
+            console.log('🔒 On auth page or guest video call, not redirecting');
           }
         }
       }
